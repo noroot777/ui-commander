@@ -1,10 +1,10 @@
 name: screen-commander
-description: Capture a frontend bug reproduction inside the user's existing Chrome session, then turn the session into structured artifacts for any local coding agent to inspect. Use this skill when the user wants to demonstrate a bug by clicking through the real app, narrating what should happen, and handing the resulting session to an agent for analysis or code changes.
+description: Capture a frontend bug reproduction inside the user's existing Chrome session, or resume from an existing Screen Commander session URL, then turn the session into structured artifacts for any local coding agent to inspect. Use this skill when the user wants to demonstrate a bug by clicking through the real app, narrating what should happen, handing the resulting session to an agent for analysis, or simply pasting text like `使用screen commander分析 http://127.0.0.1:47321/sessions/<session-id>/live` or `使用screen commander分析并直接修复 http://127.0.0.1:47321/sessions/<session-id>/live`.
 ---
 
 # Screen Commander
 
-Use this skill when the user wants to show a frontend bug in their normal Chrome session instead of describing it in text.
+Use this skill when the user wants to show a frontend bug in their normal Chrome session instead of describing it in text, or when the user already has a Screen Commander session URL and wants the agent to continue from that recorded session. Also trigger it when the user pastes a ready-made prompt such as `使用screen commander分析 <session-url>` or `使用screen commander分析并直接修复 <session-url>`.
 
 The skill has one job: convert a narrated browser reproduction into structured session artifacts.
 
@@ -12,18 +12,31 @@ This skill is stateful. On normal triggers, default to direct start instead of r
 
 In command examples below, `<python-bin>` means the user's available Python 3 executable for this skill. Usually that is `python3`, but it may also be a venv path or another machine-specific interpreter path.
 
+Default to a fresh recording on every new trigger. Ignore any previously recorded session in the same IDE thread unless the user explicitly asks to reuse or analyze that earlier recording.
+
 ## Workflow
 
-1. Default the target project to the current workspace. Only override it when the user explicitly wants to send the session to a different repo.
-2. Keep saved transcription preferences as-is by default. Only ask for narration language when it is clearly missing and will block understanding later.
-3. Do not ask about transcription models by default. Only change models when the current transcript quality is poor or the user explicitly asks. When the user chooses a stronger model, persist that model so future sessions keep using it afterwards.
-4. Enter blocking watch mode before the user records. This is the default and only primary interaction mode for this skill.
-5. When watch mode starts, bind the current workspace as the active project root for the upcoming session.
-6. Once recording can begin, send one short bold reminder in the IDE chat. Keep it visually prominent and concise, and always adapt the shortcuts to the user's platform. Example on macOS: `**现在请切到 Chrome，按 Option+S 开始，按 Option+E 结束。**` Example on Windows or Linux: `**现在请切到 Chrome，按 Alt+S 开始，按 Alt+E 结束。**`
-7. Tell the user to focus the target Chrome tab, then use the platform-appropriate shortcuts to record: `Option+S` and `Option+E` on macOS, `Alt+S` and `Alt+E` on Windows or Linux.
-8. If start or stop fails, then run local diagnosis and repair: use `scripts/status.py` to inspect readiness and `scripts/setup.py` to repair the bridge when needed.
-9. Wait for the next finalized session in the current thread, then continue from those artifacts in the same thread.
-10. Use the current thread to analyze and, when appropriate, apply code changes. Do not rely on a separate background Codex task as the primary path.
+1. If the user already provided a Screen Commander session URL or session id, resolve that session immediately and continue from its artifacts. Do not ask the user to record again unless they explicitly want a fresh repro.
+2. Otherwise, default the target project to the current workspace. Only override it when the user explicitly wants to send the session to a different repo.
+3. Keep saved transcription preferences as-is by default. Only ask for narration language when it is clearly missing and will block understanding later.
+4. Do not ask about transcription models by default. Only change models when the current transcript quality is poor or the user explicitly asks. When the user chooses a stronger model, persist that model so future sessions keep using it afterwards.
+5. Enter blocking watch mode before the user records. This is the default and only primary interaction mode for this skill.
+6. When watch mode starts, bind the current workspace as the active project root for the upcoming session.
+7. Once recording can begin, send one short bold reminder in the IDE chat. Keep it visually prominent and concise, and always adapt the shortcuts to the user's platform. Example on macOS: `**现在请切到 Chrome，按 Option+S 开始，按 Option+E 结束。**` Example on Windows or Linux: `**现在请切到 Chrome，按 Alt+S 开始，按 Alt+E 结束。**`
+8. Tell the user to focus the target Chrome tab, then use the platform-appropriate shortcuts to record: `Option+S` and `Option+E` on macOS, `Alt+S` and `Alt+E` on Windows or Linux.
+9. If start or stop fails, then run local diagnosis and repair: use `scripts/status.py` to inspect readiness and `scripts/setup.py` to repair the bridge when needed.
+10. Wait only for the next newly created finalized session in the current thread. Do not reuse an older session just because its files changed or the thread was reopened.
+11. Use the current thread to analyze and, when appropriate, apply code changes. Do not rely on a separate background Codex task as the primary path.
+
+## Existing Session URLs
+
+When the user provides a localhost Screen Commander URL such as `http://127.0.0.1:47321/sessions/<session-id>/live`, or gives a raw session id, skip watch mode and resolve it directly:
+
+```bash
+<python-bin> <skill-dir>/scripts/session_locator.py "<session-url-or-id>"
+```
+
+This returns the resolved session directory, `summary.json`, review info, and artifact paths so the current thread can continue immediately from that session.
 
 Use blocking watch mode on every normal trigger:
 - run `<python-bin> <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id>`
@@ -33,6 +46,8 @@ Use blocking watch mode on every normal trigger:
 - if the user asked for direct code changes, do the edits in the current thread instead of waiting for the background orchestrator
 
 ## Step 1: Start directly
+
+If the user already supplied a session URL or session id, do not start watch mode. Resolve that session first with `scripts/session_locator.py`, then continue at artifact review.
 
 On normal triggers, do not run `scripts/status.py` first. Go straight into watch mode and ask the user to record.
 
@@ -179,6 +194,7 @@ Read:
 - `summary.json`
 - `interaction_timeline.json`
 - `focus_regions.json`
+- `referential_mentions.json`
 - `focus_regions/`
 - `console_logs.jsonl`
 - `network_logs.jsonl`
@@ -186,7 +202,9 @@ Read:
 - `segments.json`
 - `screenshots/`
 
-Use the timeline as the primary source of truth for click or input workflows. Use `focus_regions.json` when the user mostly pointed, hovered, or drew circles instead of clicking. For each focus region, prefer the generated overlay and crop images in `focus_regions/` over raw bbox guessing.
+If `summary.json` contains `extension.reload_required=true`, tell the user plainly that Chrome is still using an older unpacked extension build than the current skill files, and ask them to reload the extension in `chrome://extensions` before trusting the next recording.
+
+Use the timeline as the primary source of truth for click or input workflows. Use `focus_regions.json` when the user mostly pointed, hovered, or drew circles instead of clicking. Use `referential_mentions.json` when the transcript contains phrases like "this", "that", "这个", or "这两个"; it links those phrases to nearby pointer hotspots by time. For each focus region, prefer the generated overlay and crop images in `focus_regions/` over raw bbox guessing.
 
 Then summarize your understanding back to the user in a short numbered list before editing code.
 

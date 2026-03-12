@@ -1,4 +1,5 @@
 const HOST_NAME = "dev.codex.screen_commander";
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
 let nativePort = null;
 let sessionId = null;
@@ -45,6 +46,9 @@ const I18N = {
     shortcutsTitle: "Screen Commander shortcuts",
     shortcutsBody: (start, stop) => `Press ${start} to start recording on this page.\nPress ${stop} to stop and save the session.`,
     shortcutsHint: "After the start cue appears, begin speaking.",
+    extensionReloadTitle: "Reload the extension",
+    extensionReloadBody: (recorded, expected) => `Recording started, but Chrome is still running extension ${recorded}. The updated skill expects ${expected}.`,
+    extensionReloadHint: "Open chrome://extensions and click Reload before the next recording.",
   },
   zh: {
     recordingStartedTitle: "开始录制",
@@ -73,6 +77,9 @@ const I18N = {
     shortcutsTitle: "Screen Commander 快捷键",
     shortcutsBody: (start, stop) => `按 ${start} 开始录制当前页面。\n按 ${stop} 结束并保存这次 session。`,
     shortcutsHint: "看到开始提示后，再开口描述问题。",
+    extensionReloadTitle: "扩展还没重新 Reload",
+    extensionReloadBody: (recorded, expected) => `这次录制已经开始，但 Chrome 里的扩展还是 ${recorded}，当前 skill 已更新到 ${expected}。`,
+    extensionReloadHint: "请到 chrome://extensions 点一下 Reload，再录下一条。",
   },
   ja: {
     recordingStartedTitle: "録画を開始しました",
@@ -101,6 +108,9 @@ const I18N = {
     shortcutsTitle: "Screen Commander ショートカット",
     shortcutsBody: (start, stop) => `${start} でこのページの録画を開始します。\n${stop} で停止して session を保存します。`,
     shortcutsHint: "開始メッセージが出てから話し始めてください。",
+    extensionReloadTitle: "拡張機能を再読み込みしてください",
+    extensionReloadBody: (recorded, expected) => `録画は開始しましたが、Chrome 側の拡張機能はまだ ${recorded} のままです。現在の skill は ${expected} を想定しています。`,
+    extensionReloadHint: "次の録画前に chrome://extensions で Reload してください。",
   }
 };
 
@@ -415,6 +425,7 @@ async function ensureContentScript(tabId) {
 
 async function pingContentScript(tabId) {
   try {
+    await ensureContentScript(tabId);
     const response = await chrome.tabs.sendMessage(tabId, {
       type: "screen-commander-ping"
     });
@@ -426,6 +437,7 @@ async function pingContentScript(tabId) {
 
 async function showPageCue(tabId, textOrPayload, tone = "info") {
   try {
+    await ensureContentScript(tabId);
     const payload = typeof textOrPayload === "string"
       ? { text: textOrPayload, tone }
       : { ...textOrPayload, tone: textOrPayload?.tone || tone };
@@ -442,6 +454,7 @@ async function showPageCue(tabId, textOrPayload, tone = "info") {
 
 async function removePageCue(tabId) {
   try {
+    await ensureContentScript(tabId);
     await chrome.scripting.executeScript({
       target: { tabId, allFrames: false },
       func: () => {
@@ -466,6 +479,7 @@ async function removePageCue(tabId) {
 
 async function setContentCaptureState(tabId, enabled) {
   try {
+    await ensureContentScript(tabId);
     await chrome.tabs.sendMessage(tabId, {
       type: "screen-commander-set-capture",
       enabled
@@ -493,7 +507,8 @@ async function startSession(tab, microphone = null) {
   await ensureOffscreenDocument();
   const response = await sendNative("start_session", {
     url: tab.url,
-    title: tab.title
+    title: tab.title,
+    extension_version: EXTENSION_VERSION
   });
   sessionId = response.session_id;
   activeTabId = tab.id;
@@ -569,6 +584,22 @@ async function startSession(tab, microphone = null) {
           },
       audioEnabled || response.native_audio?.enabled ? "success" : "warning"
     );
+    if (response?.extension?.reload_required) {
+      await showPageCue(
+        tab.id,
+        {
+          title: copy.extensionReloadTitle,
+          body: copy.extensionReloadBody(
+            response.extension.recorded_version || EXTENSION_VERSION,
+            response.extension.expected_version || "unknown"
+          ),
+          hint: copy.extensionReloadHint,
+          durationMs: 6200,
+          tone: "warning"
+        },
+        "warning"
+      );
+    }
   }
   return {
     ...response,

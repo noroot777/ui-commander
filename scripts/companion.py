@@ -11,6 +11,7 @@ import importlib.util
 import json
 import locale
 import os
+import signal
 import re
 import shutil
 import struct
@@ -80,6 +81,10 @@ SCRIPT_PATTERNS = {
         "secondary": re.compile(r"[0-9]"),
         "unexpected": re.compile(r"[\u3040-\u30ff\uac00-\ud7af\u3400-\u4dbf\u4e00-\u9fff]"),
     },
+}
+DEICTIC_PATTERNS = {
+    "zh": re.compile(r"这个地方|这一块|这两个|这个|这里|这边|这块|那个地方|那两个|那个|那里|那边"),
+    "en": re.compile(r"\b(this|these|that|those|here|there)\b", re.IGNORECASE),
 }
 
 
@@ -305,6 +310,432 @@ def write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n")
 
 
+def current_skill_extension_version() -> str | None:
+    manifest = read_json(PROJECT_ROOT / "chrome-extension" / "manifest.json", {})
+    if not isinstance(manifest, dict):
+        return None
+    version = manifest.get("version")
+    if not isinstance(version, str):
+        return None
+    value = version.strip()
+    return value or None
+
+
+def extension_version_status(recorded_version: object) -> dict[str, object]:
+    recorded = recorded_version.strip() if isinstance(recorded_version, str) else None
+    expected = current_skill_extension_version()
+    return {
+        "recorded_version": recorded,
+        "expected_version": expected,
+        "reload_required": bool(recorded and expected and recorded != expected),
+        "known": bool(recorded),
+    }
+
+
+def event_time_ms(event: dict) -> int:
+    return int(event.get("time", 0))
+
+
+def point_distance(first: tuple[float, float], second: tuple[float, float]) -> float:
+    dx = first[0] - second[0]
+    dy = first[1] - second[1]
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def target_signature(target: object) -> str | None:
+    if not isinstance(target, dict):
+        return None
+    return "|".join(
+        [
+            str(target.get("selector") or ""),
+            str(target.get("text") or ""),
+            str(target.get("tag") or ""),
+            str(target.get("name") or ""),
+        ]
+    )
+
+
+def target_center(target: object) -> tuple[float, float] | None:
+    if not isinstance(target, dict):
+        return None
+    rect = target.get("rect")
+    if not isinstance(rect, dict):
+        return None
+    width = rect.get("width")
+    height = rect.get("height")
+    x = rect.get("x")
+    y = rect.get("y")
+    if not all(isinstance(value, (int, float)) for value in (x, y, width, height)):
+        return None
+    return (float(x) + float(width) / 2.0, float(y) + float(height) / 2.0)
+
+
+def event_is_extension_cue(event: dict) -> bool:
+    target = event.get("target")
+    if not isinstance(target, dict):
+        return False
+    if bool(target.get("screenCommanderCue")):
+        return True
+    text = str(target.get("text") or "")
+    return (
+        ("开始录制" in text and "结束录制" in text)
+        or ("Start speaking now" in text and "stop recording" in text.lower())
+    )
+
+
+def choose_region_target(events: list[dict]) -> dict | None:
+    weighted_targets: dict[str, dict[str, object]] = {}
+    fallback_target = None
+    for index, event in enumerate(events):
+        target = event.get("target")
+        if not isinstance(target, dict):
+            continue
+        fallback_target = target
+        signature = target_signature(target)
+        if not signature:
+            continue
+        next_time = event_time_ms(events[index + 1]) if index + 1 < len(events) else event_time_ms(event) + 120
+        dwell_ms = max(80, min(800, next_time - event_time_ms(event)))
+        weight = dwell_ms
+        if event.get("type") in {"click", "dblclick"}:
+            weight += 1200
+        bucket = weighted_targets.setdefault(signature, {"target": target, "weight": 0})
+        bucket["weight"] = int(bucket["weight"]) + weight
+        chosen = bucket["target"]
+        chosen_text = str(chosen.get("text") or "")
+        target_text = str(target.get("text") or "")
+        if len(target_text) > len(chosen_text):
+            bucket["target"] = target
+    if not weighted_targets:
+        return fallback_target
+    best = max(weighted_targets.values(), key=lambda item: int(item["weight"]))
+    return best.get("target") if isinstance(best.get("target"), dict) else fallback_target
+
+
+def bbox_from_events(events: list[dict], target: dict | None = None) -> dict[str, int] | None:
+    xs = [event.get("x") for event in events if isinstance(event.get("x"), int)]
+    ys = [event.get("y") for event in events if isinstance(event.get("y"), int)]
+    if not xs or not ys:
+        return None
+    x_min = min(xs)
+    x_max = max(xs)
+    y_min = min(ys)
+    y_max = max(ys)
+    if isinstance(target, dict) and isinstance(target.get("rect"), dict):
+        rect = target["rect"]
+        rect_x = rect.get("x")
+        rect_y = rect.get("y")
+        rect_width = rect.get("width")
+        rect_height = rect.get("height")
+        if all(isinstance(value, (int, float)) for value in (rect_x, rect_y, rect_width, rect_height)):
+            x_min = min(x_min, round(float(rect_x)))
+            y_min = min(y_min, round(float(rect_y)))
+            x_max = max(x_max, round(float(rect_x) + float(rect_width)))
+            y_max = max(y_max, round(float(rect_y) + float(rect_height)))
+    return {
+        "x_min": int(x_min),
+        "y_min": int(y_min),
+        "x_max": int(x_max),
+        "y_max": int(y_max),
+        "width": max(int(x_max) - int(x_min), 1),
+        "height": max(int(y_max) - int(y_min), 1),
+    }
+
+
+def focus_region_score(gesture: str, duration_ms: int, sample_count: int, click_count: int) -> int:
+    score = duration_ms + sample_count * 90 + click_count * 900
+    if gesture == "circle_like":
+        score += 800
+    elif gesture == "click_focus":
+        score += 1200
+    elif gesture == "hover":
+        score += 450
+    return score
+
+
+def make_focus_region(session_path: Path, region_id: int, region_events: list[dict], events: list[dict], gesture: str) -> dict | None:
+    if not region_events:
+        return None
+    target = choose_region_target(region_events)
+    bbox = bbox_from_events(region_events, target=target)
+    if bbox is None:
+        return None
+    xs = [int(event["x"]) for event in region_events if isinstance(event.get("x"), int)]
+    ys = [int(event["y"]) for event in region_events if isinstance(event.get("y"), int)]
+    if not xs or not ys:
+        return None
+    start_time = event_time_ms(region_events[0])
+    end_time = event_time_ms(region_events[-1])
+    duration_ms = max(0, end_time - start_time)
+    click_count = sum(1 for event in region_events if event.get("type") in {"click", "dblclick"})
+    score = focus_region_score(gesture, duration_ms, len(region_events), click_count)
+    midpoint_time = int((start_time + end_time) / 2)
+    artifacts = render_focus_region_artifacts(
+        session_path=session_path,
+        region_id=region_id,
+        group=region_events,
+        bbox={
+            "x_min": bbox["x_min"],
+            "y_min": bbox["y_min"],
+            "x_max": bbox["x_max"],
+            "y_max": bbox["y_max"],
+        },
+        keyframe_event=nearest_keyframe(events, midpoint_time),
+    )
+    return {
+        "region_id": region_id,
+        "start_time": start_time,
+        "end_time": end_time,
+        "duration_ms": duration_ms,
+        "sample_count": len(region_events),
+        "gesture": gesture,
+        "attention_score": score,
+        "click_count": click_count,
+        "centroid": {
+            "x": round(sum(xs) / len(xs), 1),
+            "y": round(sum(ys) / len(ys), 1),
+        },
+        "bbox": bbox,
+        "target": target,
+        "artifacts": artifacts,
+        "path_points": [
+            {
+                "time": event.get("time"),
+                "x": event.get("x"),
+                "y": event.get("y"),
+            }
+            for event in region_events
+            if isinstance(event.get("x"), int) and isinstance(event.get("y"), int)
+        ],
+    }
+
+
+def build_move_focus_windows(move_events: list[dict]) -> list[list[dict]]:
+    windows: list[list[dict]] = []
+    index = 0
+    while index < len(move_events):
+        window = [move_events[index]]
+        x_values = [int(move_events[index]["x"])]
+        y_values = [int(move_events[index]["y"])]
+        end = index
+        while end + 1 < len(move_events):
+            candidate = move_events[end + 1]
+            if event_time_ms(candidate) - event_time_ms(move_events[end]) > 520:
+                break
+            next_x = candidate.get("x")
+            next_y = candidate.get("y")
+            if not isinstance(next_x, int) or not isinstance(next_y, int):
+                break
+            trial_xs = [*x_values, next_x]
+            trial_ys = [*y_values, next_y]
+            width = max(trial_xs) - min(trial_xs)
+            height = max(trial_ys) - min(trial_ys)
+            duration_ms = event_time_ms(candidate) - event_time_ms(window[0])
+            max_size = 220 if duration_ms >= 900 else 170
+            if width > max_size or height > max_size:
+                break
+            window.append(candidate)
+            x_values = trial_xs
+            y_values = trial_ys
+            end += 1
+        duration_ms = event_time_ms(window[-1]) - event_time_ms(window[0])
+        if len(window) >= 4 and duration_ms >= 420:
+            windows.append(window)
+            index = end + 1
+            continue
+        index += 1
+    return windows
+
+
+def classify_move_focus_window(group: list[dict]) -> str:
+    xs = [int(event["x"]) for event in group if isinstance(event.get("x"), int)]
+    ys = [int(event["y"]) for event in group if isinstance(event.get("y"), int)]
+    if len(xs) < 4 or len(ys) < 4:
+        return "pointer_focus"
+    width = max(xs) - min(xs)
+    height = max(ys) - min(ys)
+    duration_ms = event_time_ms(group[-1]) - event_time_ms(group[0])
+    path_length = 0.0
+    for previous, current_event in zip(group, group[1:]):
+        dx = int(current_event["x"]) - int(previous["x"])
+        dy = int(current_event["y"]) - int(previous["y"])
+        path_length += (dx * dx + dy * dy) ** 0.5
+    start_end_dx = int(group[-1]["x"]) - int(group[0]["x"])
+    start_end_dy = int(group[-1]["y"]) - int(group[0]["y"])
+    start_end_distance = (start_end_dx * start_end_dx + start_end_dy * start_end_dy) ** 0.5
+    region_size = max(width, height, 1)
+    if duration_ms >= 900 and start_end_distance <= max(24.0, region_size * 0.5) and path_length >= region_size * 2.4:
+        return "circle_like"
+    if duration_ms >= 650 and width <= 140 and height <= 140:
+        return "hover"
+    return "pointer_focus"
+
+
+def attach_click_regions(focus_regions: list[dict], click_events: list[dict], session_path: Path, events: list[dict], next_region_id: int) -> tuple[list[dict], int]:
+    for event in click_events:
+        click_point = (
+            float(event.get("x") or 0),
+            float(event.get("y") or 0),
+        )
+        best_region = None
+        best_distance = None
+        for region in focus_regions:
+            centroid = region.get("centroid", {})
+            if not isinstance(centroid, dict):
+                continue
+            centroid_point = (
+                float(centroid.get("x") or 0),
+                float(centroid.get("y") or 0),
+            )
+            spatial_distance = point_distance(click_point, centroid_point)
+            time_distance = min(
+                abs(event_time_ms(event) - int(region.get("start_time", 0))),
+                abs(event_time_ms(event) - int(region.get("end_time", 0))),
+            )
+            if spatial_distance > 120 or time_distance > 1400:
+                continue
+            combined = spatial_distance + (time_distance / 25.0)
+            if best_distance is None or combined < best_distance:
+                best_distance = combined
+                best_region = region
+
+        if best_region is not None:
+            best_region["click_count"] = int(best_region.get("click_count", 0)) + 1
+            best_region["attention_score"] = int(best_region.get("attention_score", 0)) + 900
+            if isinstance(event.get("target"), dict):
+                best_region["target"] = event["target"]
+            bbox = best_region.get("bbox")
+            if isinstance(bbox, dict) and isinstance(event.get("x"), int) and isinstance(event.get("y"), int):
+                bbox["x_min"] = min(int(bbox["x_min"]), int(event["x"]))
+                bbox["x_max"] = max(int(bbox["x_max"]), int(event["x"]))
+                bbox["y_min"] = min(int(bbox["y_min"]), int(event["y"]))
+                bbox["y_max"] = max(int(bbox["y_max"]), int(event["y"]))
+                bbox["width"] = max(int(bbox["x_max"]) - int(bbox["x_min"]), 1)
+                bbox["height"] = max(int(bbox["y_max"]) - int(bbox["y_min"]), 1)
+            if isinstance(best_region.get("path_points"), list):
+                best_region["path_points"].append(
+                    {"time": event.get("time"), "x": event.get("x"), "y": event.get("y")}
+                )
+            best_region["start_time"] = min(int(best_region.get("start_time", event_time_ms(event))), event_time_ms(event))
+            best_region["end_time"] = max(int(best_region.get("end_time", event_time_ms(event))), event_time_ms(event))
+            best_region["duration_ms"] = int(best_region["end_time"]) - int(best_region["start_time"])
+            continue
+
+        new_region = make_focus_region(
+            session_path=session_path,
+            region_id=next_region_id,
+            region_events=[event],
+            events=events,
+            gesture="click_focus",
+        )
+        if new_region is not None:
+            focus_regions.append(new_region)
+            next_region_id += 1
+    return focus_regions, next_region_id
+
+
+def extract_referential_terms(text: str, language: str | None) -> list[str]:
+    normalized_language = normalize_language_tag(language)
+    pattern = DEICTIC_PATTERNS.get(normalized_language or "")
+    if pattern is None:
+        pattern = DEICTIC_PATTERNS.get("en")
+    if pattern is None:
+        return []
+    matches: list[str] = []
+    for match in pattern.finditer(text):
+        token = match.group(0)
+        if token not in matches:
+            matches.append(token)
+    return matches
+
+
+def aligned_transcript_segments(segments: list[dict], events: list[dict], language: str | None) -> list[dict]:
+    anchor_event = next(
+        (
+            event
+            for event in events
+            if event.get("type") in {"session_started", "content_script_status", "page_ready"}
+            and isinstance(event.get("time"), int)
+        ),
+        None,
+    )
+    anchor_time_ms = event_time_ms(anchor_event) if anchor_event else min((event_time_ms(event) for event in events), default=0)
+    aligned: list[dict] = []
+    for index, segment in enumerate(segments):
+        start_time = float(segment.get("start_time", 0.0))
+        end_time = float(segment.get("end_time", start_time))
+        text = str(segment.get("text") or "").strip()
+        absolute_start_time_ms = anchor_time_ms + round(start_time * 1000)
+        absolute_end_time_ms = anchor_time_ms + round(end_time * 1000)
+        aligned.append(
+            {
+                **segment,
+                "segment_index": index,
+                "text": text,
+                "absolute_start_time_ms": absolute_start_time_ms,
+                "absolute_end_time_ms": absolute_end_time_ms,
+                "referential_terms": extract_referential_terms(text, language),
+            }
+        )
+    return aligned
+
+
+def build_referential_mentions(segments: list[dict], focus_regions: list[dict]) -> list[dict]:
+    mentions: list[dict] = []
+    for segment in segments:
+        terms = [str(item) for item in segment.get("referential_terms", []) if item]
+        if not terms:
+            continue
+        window_start = int(segment.get("absolute_start_time_ms", 0)) - 900
+        window_end = int(segment.get("absolute_end_time_ms", 0)) + 900
+        candidates = []
+        for region in focus_regions:
+            region_start = int(region.get("start_time", 0))
+            region_end = int(region.get("end_time", 0))
+            overlap_ms = max(0, min(region_end, window_end) - max(region_start, window_start))
+            time_distance_ms = 0
+            if overlap_ms == 0:
+                if region_end < window_start:
+                    time_distance_ms = window_start - region_end
+                elif region_start > window_end:
+                    time_distance_ms = region_start - window_end
+            if overlap_ms == 0 and time_distance_ms > 2200:
+                continue
+            candidates.append(
+                {
+                    "region_id": region.get("region_id"),
+                    "gesture": region.get("gesture"),
+                    "attention_score": region.get("attention_score"),
+                    "overlap_ms": overlap_ms,
+                    "time_distance_ms": time_distance_ms,
+                    "target": region.get("target"),
+                    "bbox": region.get("bbox"),
+                    "centroid": region.get("centroid"),
+                }
+            )
+        candidates.sort(
+            key=lambda item: (
+                -int(item.get("overlap_ms", 0)),
+                int(item.get("time_distance_ms", 0)),
+                -int(item.get("attention_score", 0) or 0),
+            )
+        )
+        mentions.append(
+            {
+                "segment_index": segment.get("segment_index"),
+                "text": segment.get("text"),
+                "terms": terms,
+                "start_time": segment.get("start_time"),
+                "end_time": segment.get("end_time"),
+                "absolute_start_time_ms": segment.get("absolute_start_time_ms"),
+                "absolute_end_time_ms": segment.get("absolute_end_time_ms"),
+                "best_region_id": candidates[0]["region_id"] if candidates else None,
+                "region_candidates": candidates[:3],
+            }
+        )
+    return mentions
+
+
 def try_open_local_file(path: Path) -> bool:
     try:
         subprocess.run(["open", str(path)], check=False, capture_output=True)
@@ -339,14 +770,33 @@ def live_server_healthy(base_url: str | None) -> bool:
 def ensure_live_server(session_id: str) -> dict[str, object]:
     existing = read_server_info()
     base_url = existing.get("base_url")
-    if isinstance(base_url, str) and live_server_healthy(base_url):
+    server_script = PROJECT_ROOT / "scripts" / "session_server.py"
+    expected_script_mtime_ns = server_script.stat().st_mtime_ns if server_script.exists() else None
+    existing_script_mtime_ns = existing.get("script_mtime_ns")
+    server_is_current = (
+        isinstance(existing_script_mtime_ns, int)
+        and expected_script_mtime_ns is not None
+        and existing_script_mtime_ns == expected_script_mtime_ns
+    )
+
+    if isinstance(base_url, str) and live_server_healthy(base_url) and server_is_current:
         return {
             **existing,
             "live_review_url": f"{base_url.rstrip('/')}/sessions/{session_id}/live",
             "reused": True,
         }
 
-    server_script = PROJECT_ROOT / "scripts" / "session_server.py"
+    stale_pid = existing.get("pid")
+    if isinstance(stale_pid, int):
+        try:
+            os.kill(stale_pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            pass
+        except OSError:
+            pass
+
     try:
         subprocess.Popen(
             [sys.executable, str(server_script), "run"],
@@ -406,6 +856,9 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
     overlay_images = [str(item) for item in review.get("overlay_images", []) if item]
     crop_images = [str(item) for item in review.get("crop_images", []) if item]
     keyframes = [str(item) for item in review.get("keyframes", []) if item]
+    referential_mentions = [
+        item for item in review.get("referential_mentions", []) if isinstance(item, dict)
+    ]
     transcription = summary.get("transcription", {}) if isinstance(summary.get("transcription"), dict) else {}
     model_name = str(transcription.get("model") or "unknown")
     selected_language = str(transcription.get("selected_language") or "auto")
@@ -434,7 +887,38 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
                 f"<section><h2>{html.escape(label)}</h2><div class=\"image-grid\">{figures}</div></section>"
             )
 
+    mention_cards = []
+    for mention in referential_mentions:
+        terms = ", ".join(html.escape(str(item)) for item in mention.get("terms", []) if item)
+        candidates = mention.get("region_candidates", []) if isinstance(mention.get("region_candidates"), list) else []
+        best_candidate = candidates[0] if candidates and isinstance(candidates[0], dict) else {}
+        target = best_candidate.get("target") if isinstance(best_candidate, dict) else {}
+        target_label = ""
+        if isinstance(target, dict):
+            target_label = html.escape(str(target.get("text") or target.get("selector") or target.get("tag") or ""))
+        detail_parts = []
+        if terms:
+            detail_parts.append(f"Terms: {terms}")
+        if mention.get("best_region_id") is not None:
+            detail_parts.append(f"Region #{html.escape(str(mention.get('best_region_id')))}")
+        if target_label:
+            detail_parts.append(f"Target: {target_label}")
+        mention_cards.append(
+            "<article class=\"mention-card\">"
+            f"<div class=\"mention-time\">{html.escape(str(mention.get('start_time')))}s - {html.escape(str(mention.get('end_time')))}s</div>"
+            f"<div class=\"mention-text\">{html.escape(str(mention.get('text') or ''))}</div>"
+            f"<div class=\"mention-meta\">{' | '.join(detail_parts)}</div>"
+            "</article>"
+        )
+
     transcript_html = html.escape(transcript) if transcript else "No transcript was produced."
+    referential_section = (
+        "<section><h2>Referential Mentions</h2><div class=\"mention-list\">"
+        + "".join(mention_cards)
+        + "</div></section>"
+        if mention_cards
+        else ""
+    )
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -526,6 +1010,32 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
       color: var(--muted);
       font-size: 13px;
     }}
+    .mention-list {{
+      display: grid;
+      gap: 12px;
+    }}
+    .mention-card {{
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      background: rgba(18, 104, 76, 0.03);
+    }}
+    .mention-time {{
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }}
+    .mention-text {{
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }}
+    .mention-meta {{
+      font-size: 13px;
+      color: var(--muted);
+    }}
     .hint {{
       color: var(--muted);
       margin-top: 10px;
@@ -561,6 +1071,7 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
       <h2>Recognized Transcript</h2>
       <p class="transcript">{transcript_html}</p>
     </section>
+    {referential_section}
     {"".join(image_cards)}
   </main>
 </body>
@@ -581,6 +1092,7 @@ def start_session(payload: dict) -> dict:
     session_id = payload.get("session_id") or datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
     current_project_root = session_project_root()
     path = ensure_session(session_id, project_root=current_project_root)
+    extension = extension_version_status(payload.get("extension_version"))
     meta = {
         "session_id": session_id,
         "created_at": utc_now(),
@@ -589,6 +1101,7 @@ def start_session(payload: dict) -> dict:
         "title": payload.get("title"),
         "project_root": current_project_root or "auto",
         "project_slug": project_slug(current_project_root),
+        "extension": extension,
     }
     write_json(path / "session.json", meta)
     mark_extension_confirmed(session_id, payload.get("url"), payload.get("title"))
@@ -611,6 +1124,7 @@ def start_session(payload: dict) -> dict:
         "ok": True,
         "session_id": session_id,
         "path": str(path),
+        "extension": extension,
         "native_audio": {
             "enabled": bool(audio.get("ok")),
             "device_name": audio.get("device_name"),
@@ -1053,107 +1567,47 @@ def build_focus_regions(session_path: Path, events: list[dict]) -> list[dict]:
         ),
         default=None,
     )
-    move_events = [
+    pointer_events = [
         event
         for event in events
-        if event.get("type") == "mousemove"
+        if event.get("type") in {"mousemove", "click", "dblclick"}
+        and not event_is_extension_cue(event)
         and (stop_requested_time is None or int(event.get("time", 0)) <= stop_requested_time)
     ]
-    if not move_events:
+    move_events = [event for event in pointer_events if event.get("type") == "mousemove"]
+    click_events = [event for event in pointer_events if event.get("type") in {"click", "dblclick"}]
+    if not move_events and not click_events:
         return []
-
-    groups: list[list[dict]] = []
-    current: list[dict] = []
-    for event in move_events:
-      if not current:
-          current = [event]
-          continue
-      previous = current[-1]
-      if int(event.get("time", 0)) - int(previous.get("time", 0)) <= 700:
-          current.append(event)
-      else:
-          if len(current) >= 4:
-              groups.append(current)
-          current = [event]
-    if len(current) >= 4:
-        groups.append(current)
 
     focus_regions = []
     region_id = 1
-    for group in groups:
-        xs = [event.get("x") for event in group if isinstance(event.get("x"), int)]
-        ys = [event.get("y") for event in group if isinstance(event.get("y"), int)]
-        if len(xs) < 4 or len(ys) < 4:
-            continue
-        x_min = min(xs)
-        x_max = max(xs)
-        y_min = min(ys)
-        y_max = max(ys)
-        width = max(x_max - x_min, 1)
-        height = max(y_max - y_min, 1)
-        duration_ms = int(group[-1]["time"]) - int(group[0]["time"])
-        path_length = 0.0
-        for previous, current_event in zip(group, group[1:]):
-            dx = int(current_event["x"]) - int(previous["x"])
-            dy = int(current_event["y"]) - int(previous["y"])
-            path_length += (dx * dx + dy * dy) ** 0.5
-        start_end_dx = int(group[-1]["x"]) - int(group[0]["x"])
-        start_end_dy = int(group[-1]["y"]) - int(group[0]["y"])
-        start_end_distance = (start_end_dx * start_end_dx + start_end_dy * start_end_dy) ** 0.5
-        region_size = max(width, height)
-        if duration_ms >= 900 and start_end_distance <= max(24.0, region_size * 0.45) and path_length >= region_size * 3:
-            gesture = "circle_like"
-        elif duration_ms >= 700 and width <= 140 and height <= 140:
-            gesture = "hover"
-        else:
-            gesture = "pointer_path"
-        midpoint_time = int((int(group[0]["time"]) + int(group[-1]["time"])) / 2)
-        artifacts = render_focus_region_artifacts(
+    for group in build_move_focus_windows(move_events):
+        region = make_focus_region(
             session_path=session_path,
             region_id=region_id,
-            group=group,
-            bbox={
-                "x_min": x_min,
-                "y_min": y_min,
-                "x_max": x_max,
-                "y_max": y_max,
-            },
-            keyframe_event=nearest_keyframe(events, midpoint_time),
+            region_events=group,
+            events=events,
+            gesture=classify_move_focus_window(group),
         )
-        focus_regions.append(
-            {
-                "region_id": region_id,
-                "start_time": group[0]["time"],
-                "end_time": group[-1]["time"],
-                "duration_ms": duration_ms,
-                "sample_count": len(group),
-                "gesture": gesture,
-                "centroid": {
-                    "x": round(sum(xs) / len(xs), 1),
-                    "y": round(sum(ys) / len(ys), 1),
-                },
-                "bbox": {
-                    "x_min": x_min,
-                    "y_min": y_min,
-                    "x_max": x_max,
-                    "y_max": y_max,
-                    "width": width,
-                    "height": height,
-                },
-                "target": group[-1].get("target"),
-                "artifacts": artifacts,
-                "path_points": [
-                    {
-                        "time": event.get("time"),
-                        "x": event.get("x"),
-                        "y": event.get("y"),
-                    }
-                    for event in group
-                ],
-            }
-        )
+        if region is None:
+            continue
+        focus_regions.append(region)
         region_id += 1
 
+    focus_regions, region_id = attach_click_regions(
+        focus_regions=focus_regions,
+        click_events=click_events,
+        session_path=session_path,
+        events=events,
+        next_region_id=region_id,
+    )
+
+    focus_regions.sort(
+        key=lambda item: (
+            -int(item.get("attention_score", 0)),
+            int(item.get("start_time", 0)),
+        )
+    )
     return focus_regions
 
 
@@ -1253,16 +1707,44 @@ def finalize_session(payload: dict) -> dict:
     else:
         transcript_status = "no_audio"
 
+    aligned_segments = aligned_transcript_segments(
+        segments=segments,
+        events=events,
+        language=transcription.get("selected_language") if isinstance(transcription, dict) else None,
+    )
+    referential_mentions = build_referential_mentions(aligned_segments, focus_regions)
+    mentions_by_segment = {
+        int(item.get("segment_index", -1)): item
+        for item in referential_mentions
+        if isinstance(item.get("segment_index"), int)
+    }
+    enriched_segments = []
+    for segment in aligned_segments:
+        mention = mentions_by_segment.get(int(segment.get("segment_index", -1)))
+        enriched_segment = dict(segment)
+        if mention:
+            enriched_segment["best_region_id"] = mention.get("best_region_id")
+            enriched_segment["region_candidate_ids"] = [
+                candidate.get("region_id")
+                for candidate in mention.get("region_candidates", [])
+                if candidate.get("region_id") is not None
+            ]
+        enriched_segments.append(enriched_segment)
+
     if transcript:
         (path / "transcript.txt").write_text(transcript + "\n", encoding="utf-8")
 
-    write_json(path / "segments.json", segments)
+    write_json(path / "segments.json", enriched_segments)
+    write_json(path / "referential_mentions.json", referential_mentions)
 
     meta = read_json(path / "session.json", {})
     if isinstance(meta, dict):
         meta["status"] = "completed"
         meta["completed_at"] = utc_now()
+        meta["extension"] = extension_version_status(meta.get("extension", {}).get("recorded_version") if isinstance(meta.get("extension"), dict) else None)
         write_json(path / "session.json", meta)
+
+    extension = meta.get("extension", {}) if isinstance(meta, dict) and isinstance(meta.get("extension"), dict) else extension_version_status(None)
 
     summary = {
         "session_id": session_id,
@@ -1270,12 +1752,14 @@ def finalize_session(payload: dict) -> dict:
         "event_count": len(events),
         "step_count": len(timeline),
         "focus_region_count": len(focus_regions),
+        "referential_mention_count": len(referential_mentions),
         "console_entry_count": len(console_logs),
         "network_entry_count": len(network_logs),
         "has_transcript": bool(transcript),
         "transcript_status": transcript_status,
         "transcription": transcription,
         "dependencies": dependencies,
+        "extension": extension,
         "review": {
             "transcript": transcript,
             "overlay_images": [
@@ -1293,6 +1777,7 @@ def finalize_session(payload: dict) -> dict:
                 for item in focus_regions
                 if item.get("artifacts", {}).get("keyframe")
             ],
+            "referential_mentions": referential_mentions,
         },
         "artifacts": {
             "session": str(path / "session.json"),
@@ -1305,6 +1790,7 @@ def finalize_session(payload: dict) -> dict:
             "audio": str(audio_path),
             "transcript": str(path / "transcript.txt"),
             "segments": str(path / "segments.json"),
+            "referential_mentions": str(path / "referential_mentions.json"),
             "screenshots_dir": str(path / "screenshots"),
         },
     }

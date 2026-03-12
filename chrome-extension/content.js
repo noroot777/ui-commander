@@ -27,7 +27,7 @@ if (!window.__screenCommanderInjected) {
   }
 
   function selectorFor(element) {
-    if (!element || !(element instanceof Element)) {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) {
       return null;
     }
     if (element.id) {
@@ -46,23 +46,34 @@ if (!window.__screenCommanderInjected) {
   }
 
   function targetSummary(element) {
-    if (!element || !(element instanceof Element)) {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) {
       return null;
     }
-    const rect = element.getBoundingClientRect();
-    return {
-      tag: element.tagName.toLowerCase(),
-      text: (element.innerText || element.value || "").trim().slice(0, 120),
-      selector: selectorFor(element),
-      role: element.getAttribute("role"),
-      name: element.getAttribute("name"),
-      rect: {
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height)
-      }
-    };
+    try {
+      const cueRoot = typeof element.closest === "function"
+        ? element.closest("[data-screen-commander-cue='true']")
+        : null;
+      const rect = typeof element.getBoundingClientRect === "function"
+        ? element.getBoundingClientRect()
+        : { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        tag: element.tagName.toLowerCase(),
+        text: (element.innerText || element.value || "").trim().slice(0, 120),
+        selector: selectorFor(element),
+        role: typeof element.getAttribute === "function" ? element.getAttribute("role") : null,
+        name: typeof element.getAttribute === "function" ? element.getAttribute("name") : null,
+        screenCommanderCue: Boolean(cueRoot),
+        rect: {
+          x: Math.round(rect.x || 0),
+          y: Math.round(rect.y || 0),
+          width: Math.round(rect.width || 0),
+          height: Math.round(rect.height || 0)
+        }
+      };
+    } catch (_error) {
+      extensionAlive = false;
+      return null;
+    }
   }
 
   function postEvent(type, target, extra = {}) {

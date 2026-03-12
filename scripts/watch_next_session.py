@@ -41,6 +41,10 @@ def latest_candidates() -> list[Path]:
     return sorted(all_session_dirs(), key=lambda path: path.stat().st_mtime_ns)
 
 
+def existing_session_ids() -> set[str]:
+    return {path.name for path in latest_candidates()}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=float, default=1800.0)
@@ -64,7 +68,14 @@ def baseline_mtime_ns(after_session: str | None, explicit_after_mtime_ns: int | 
     return candidates[-1].stat().st_mtime_ns
 
 
-def should_accept(session_dir: Path, baseline_ns: int, after_session: str | None) -> bool:
+def should_accept(
+    session_dir: Path,
+    baseline_ns: int,
+    after_session: str | None,
+    initial_session_ids: set[str],
+) -> bool:
+    if session_dir.name in initial_session_ids:
+        return False
     if after_session and session_dir.name == after_session:
         return False
     if session_dir.stat().st_mtime_ns <= baseline_ns:
@@ -77,6 +88,7 @@ def main() -> int:
     args = parse_args()
     set_active_project_root(str(Path.cwd()))
     baseline_ns = baseline_mtime_ns(args.after_session, args.after_mtime_ns)
+    initial_session_ids = existing_session_ids()
     previous_auto_run = None
 
     if args.suppress_auto_run == "on":
@@ -88,7 +100,7 @@ def main() -> int:
     try:
         while time.monotonic() - started <= args.timeout:
             for candidate in reversed(latest_candidates()):
-                if should_accept(candidate, baseline_ns, args.after_session):
+                if should_accept(candidate, baseline_ns, args.after_session, initial_session_ids):
                     print(json.dumps(session_payload(candidate), indent=2, ensure_ascii=True))
                     return 0
             time.sleep(args.poll_interval)
