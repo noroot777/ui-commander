@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect or update screen-commander preferences."""
+"""Inspect or update ui-commander preferences."""
 
 from __future__ import annotations
 

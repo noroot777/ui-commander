@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Persistent user preferences for screen-commander."""
+"""Persistent user preferences for ui-commander."""
 
 from __future__ import annotations
 

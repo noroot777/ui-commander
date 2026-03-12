@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native messaging companion for screen-commander."""
+"""Native messaging companion for ui-commander."""
 
 from __future__ import annotations
 
@@ -1267,7 +1267,7 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Screen Commander Review</title>
+  <title>UI Commander Review</title>
   <style>
     :root {{
       color-scheme: light;
@@ -1389,7 +1389,7 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
 <body>
   <main>
     <section class="hero">
-      <h1>Screen Commander Review</h1>
+      <h1>UI Commander Review</h1>
       <p class="hint">Review the trajectory overlays and transcript before asking an agent to patch code.</p>
       <div class="meta">
         <div class="meta-card">

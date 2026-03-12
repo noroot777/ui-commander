@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot local setup for screen-commander."""
+"""One-shot local setup for ui-commander."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def main() -> int:
         print(f"Focus the page, press {start_shortcut} to start, and {stop_shortcut} to stop.")
     else:
         print("Next: in Chrome Extensions, enable Developer mode, click 'Load unpacked', pick that folder.")
-        print(f"Then pin Screen Commander, focus the page, press {start_shortcut} to start, and {stop_shortcut} to stop.")
+        print(f"Then pin UI Commander, focus the page, press {start_shortcut} to start, and {stop_shortcut} to stop.")
     return 0
 
 

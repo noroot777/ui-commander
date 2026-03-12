@@ -1,13 +1,13 @@
 #!/bin/sh
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-STATE_ROOT="$HOME/.screen-commander"
+STATE_ROOT="$HOME/.ui-commander"
 LOG_FILE="$STATE_ROOT/native-host.log"
 PYTHON_HINT_FILE="$STATE_ROOT/python-bin"
 mkdir -p "$STATE_ROOT"
 
 resolve_python_bin() {
-  if [ -n "${SCREEN_COMMANDER_PYTHON:-}" ] && [ -x "${SCREEN_COMMANDER_PYTHON}" ]; then
-    printf '%s\n' "${SCREEN_COMMANDER_PYTHON}"
+  if [ -n "${UI_COMMANDER_PYTHON:-}" ] && [ -x "${UI_COMMANDER_PYTHON}" ]; then
+    printf '%s\n' "${UI_COMMANDER_PYTHON}"
     return 0
   fi
 

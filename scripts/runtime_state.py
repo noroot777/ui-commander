@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared runtime state helpers for screen-commander."""
+"""Shared runtime state helpers for ui-commander."""
 
 from __future__ import annotations
 

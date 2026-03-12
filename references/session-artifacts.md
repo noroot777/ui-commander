@@ -5,7 +5,7 @@ Read this file only when you need the exact session contract.
 Each session lives under:
 
 ```text
-.screen-commander/sessions/<session-id>/
+.ui-commander/sessions/<session-id>/
 ```
 
 Agents may also receive a localhost live review URL such as:
@@ -19,8 +19,8 @@ When that happens, extract `<session-id>` from the URL and resolve the matching 
 The live review page itself may provide copy buttons that generate trigger strings like:
 
 ```text
-使用screen commander分析 http://127.0.0.1:<port>/sessions/<session-id>/live
-使用screen commander分析并直接修复 http://127.0.0.1:<port>/sessions/<session-id>/live
+使用ui commander分析 http://127.0.0.1:<port>/sessions/<session-id>/live
+使用ui commander分析并直接修复 http://127.0.0.1:<port>/sessions/<session-id>/live
 ```
 
 Treat either pasted string the same as a direct session URL, while preserving the stronger "直接修复" intent from the user's message.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve a Screen Commander session from a session id or localhost review URL."""
+"""Resolve a UI Commander session from a session id or localhost review URL."""
 
 from __future__ import annotations
 

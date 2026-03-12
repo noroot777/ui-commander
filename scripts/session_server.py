@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve a live localhost review page for screen-commander sessions."""
+"""Serve a live localhost review page for ui-commander sessions."""
 
 from __future__ import annotations
 
@@ -175,14 +175,14 @@ def build_snapshot(session_id: str, server_base_url: str) -> dict[str, object]:
 def live_page_html(session_id: str) -> str:
     session_id_json = json.dumps(session_id)
     session_id_html = html.escape(session_id)
-    copy_analyze_prefix = json.dumps("使用screen commander分析 ")
-    copy_fix_prefix = json.dumps("使用screen commander分析并直接修复 ")
+    copy_analyze_prefix = json.dumps("使用ui commander分析 ")
+    copy_fix_prefix = json.dumps("使用ui commander分析并直接修复 ")
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Screen Commander Live Review</title>
+  <title>UI Commander Live Review</title>
   <style>
     :root {{
       --bg: #efe7da;
@@ -526,7 +526,7 @@ def live_page_html(session_id: str) -> str:
     <section class="hero">
       <div class="hero-top">
         <div class="hero-copy">
-          <h1>Screen Commander Live Review</h1>
+          <h1>UI Commander Live Review</h1>
           <div class="hero-lead">先在这里确认轨迹、转写和热点区域，再一键把“分析”或“直接修复”的提示词连同 session URL 复制到 IDE 对话里。</div>
           <div class="hero-session">Session {session_id_html}</div>
           <div id="extension-warning" class="warning-banner" hidden></div>
@@ -541,7 +541,7 @@ def live_page_html(session_id: str) -> str:
           <div class="action-buttons">
             <button id="copy-analyze-button" class="copy-button" type="button">
               <strong>复制分析提示词 + URL</strong>
-              <span>粘贴后进入 `screen-commander` 分析流程</span>
+              <span>粘贴后进入 `ui-commander` 分析流程</span>
             </button>
             <button id="copy-fix-button" class="copy-button secondary" type="button">
               <strong>复制直接修复提示词 + URL</strong>

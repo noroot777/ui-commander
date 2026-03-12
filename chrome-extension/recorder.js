@@ -1,5 +1,5 @@
 const status = document.getElementById("status");
-const port = chrome.runtime.connect({ name: "screen-commander-recorder" });
+const port = chrome.runtime.connect({ name: "ui-commander-recorder" });
 
 let mediaRecorder = null;
 let mediaStream = null;

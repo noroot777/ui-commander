@@ -51,7 +51,7 @@ if (!window.__screenCommanderInjected) {
     }
     try {
       const cueRoot = typeof element.closest === "function"
-        ? element.closest("[data-screen-commander-cue='true']")
+        ? element.closest("[data-ui-commander-cue='true']")
         : null;
       const rect = typeof element.getBoundingClientRect === "function"
         ? element.getBoundingClientRect()
@@ -134,7 +134,7 @@ if (!window.__screenCommanderInjected) {
 
     const resolvedTone = payload?.tone || tone || "info";
     return {
-      title: payload?.title || payload?.text || "Screen Commander",
+      title: payload?.title || payload?.text || "UI Commander",
       body: payload?.body || "",
       hint: payload?.hint || "",
       tone: resolvedTone,
@@ -157,7 +157,7 @@ if (!window.__screenCommanderInjected) {
     }
     if (!cueElement) {
       cueElement = document.createElement("div");
-      cueElement.setAttribute("data-screen-commander-cue", "true");
+      cueElement.setAttribute("data-ui-commander-cue", "true");
       cueElement.style.position = "fixed";
       cueElement.style.top = "18px";
       cueElement.style.left = "50%";
@@ -376,16 +376,16 @@ if (!window.__screenCommanderInjected) {
   }, 500);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type === "screen-commander-ping") {
+    if (message.type === "ui-commander-ping") {
       sendResponse({ ok: true });
       return true;
     }
-    if (message.type === "screen-commander-set-capture") {
+    if (message.type === "ui-commander-set-capture") {
       captureEnabled = message.enabled !== false;
       sendResponse({ ok: true, captureEnabled });
       return true;
     }
-    if (message.type === "screen-commander-command-stop") {
+    if (message.type === "ui-commander-command-stop") {
       chrome.runtime.sendMessage({ type: "command-stop" }, (response) => {
         if (chrome.runtime.lastError) {
           sendResponse({ ok: false, error: chrome.runtime.lastError.message });
@@ -395,17 +395,17 @@ if (!window.__screenCommanderInjected) {
       });
       return true;
     }
-    if (message.type === "screen-commander-remove-cue") {
+    if (message.type === "ui-commander-remove-cue") {
       removeCue();
       sendResponse({ ok: true });
       return true;
     }
-    if (message.type === "screen-commander-cue") {
-      showCue(message.payload || message.text || "Screen Commander ready", message.tone || "info");
+    if (message.type === "ui-commander-cue") {
+      showCue(message.payload || message.text || "UI Commander ready", message.tone || "info");
       sendResponse({ ok: true });
       return true;
     }
-    if (message.type === "screen-commander-hide-cue") {
+    if (message.type === "ui-commander-hide-cue") {
       hideCue();
       sendResponse({ ok: true });
       return true;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the latest screen-commander session paths and review artifacts."""
+"""Print the latest ui-commander session paths and review artifacts."""
 
 from __future__ import annotations
 

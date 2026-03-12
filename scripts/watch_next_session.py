@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wait for the next finalized screen-commander session."""
+"""Wait for the next finalized ui-commander session."""
 
 from __future__ import annotations
 

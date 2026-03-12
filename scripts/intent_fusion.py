@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host-mediated intent fusion helpers for screen-commander sessions."""
+"""Host-mediated intent fusion helpers for ui-commander sessions."""
 
 from __future__ import annotations
 

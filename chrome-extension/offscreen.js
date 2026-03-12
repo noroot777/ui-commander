@@ -4,7 +4,7 @@ let chunks = [];
 let totalBytes = 0;
 let recorderMimeType = "";
 let lastRecorderError = null;
-const keepAlivePort = chrome.runtime.connect({ name: "screen-commander-offscreen-keepalive" });
+const keepAlivePort = chrome.runtime.connect({ name: "ui-commander-offscreen-keepalive" });
 
 function pickMimeType() {
   const candidates = [

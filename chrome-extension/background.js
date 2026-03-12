@@ -1,4 +1,4 @@
-const HOST_NAME = "dev.codex.screen_commander";
+const HOST_NAME = "dev.codex.ui_commander";
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
 let nativePort = null;
@@ -25,7 +25,7 @@ const I18N = {
     recordingStartedNoMicBody: "Microphone is unavailable, so this run will capture visuals only.",
     stopWith: (stop) => `Stop with ${stop}`,
     savingTitle: "Saving recording",
-    savingBody: "Please wait while Screen Commander writes the session, transcript, and review.",
+    savingBody: "Please wait while UI Commander writes the session, transcript, and review.",
     savingHint: "This message will update when everything is ready.",
     completeTitle: "Recording complete",
     completeBody: "The session was saved successfully.",
@@ -36,14 +36,14 @@ const I18N = {
     stillSavingBody: "Please wait for the current session to finish finalizing before you start a new one.",
     stillSavingShortBody: "Please wait a moment before trying to stop again.",
     alreadyRecordingTitle: "Already recording",
-    alreadyRecordingBody: "Screen Commander is already capturing this page.",
+    alreadyRecordingBody: "UI Commander is already capturing this page.",
     unableToStartTitle: "Unable to start recording",
-    unableToStartBody: (start) => `Screen Commander could not start this recording with ${start}.`,
+    unableToStartBody: (start) => `UI Commander could not start this recording with ${start}.`,
     notRecordingTitle: "Not currently recording",
-    notRecordingBody: (start) => `Press ${start} first to start a new Screen Commander session.`,
+    notRecordingBody: (start) => `Press ${start} first to start a new UI Commander session.`,
     unableToStopTitle: "Unable to stop recording",
-    unableToStopBody: (stop) => `Screen Commander could not stop this recording cleanly with ${stop}.`,
-    shortcutsTitle: "Screen Commander shortcuts",
+    unableToStopBody: (stop) => `UI Commander could not stop this recording cleanly with ${stop}.`,
+    shortcutsTitle: "UI Commander shortcuts",
     shortcutsBody: (start, stop) => `Press ${start} to start recording on this page.\nPress ${stop} to stop and save the session.`,
     shortcutsHint: "After the start cue appears, begin speaking.",
     extensionReloadTitle: "Reload the extension",
@@ -56,7 +56,7 @@ const I18N = {
     recordingStartedNoMicBody: "麦克风当前不可用，这次只会采集画面和操作。",
     stopWith: (stop) => `按 ${stop} 结束录制`,
     savingTitle: "正在保存录制",
-    savingBody: "Screen Commander 正在整理 session、转录文本和 review 页面，请稍等。",
+    savingBody: "UI Commander 正在整理 session、转录文本和 review 页面，请稍等。",
     savingHint: "完成后这条提示会自动更新。",
     completeTitle: "录制完成",
     completeBody: "这次 session 已经成功保存。",
@@ -67,14 +67,14 @@ const I18N = {
     stillSavingBody: "请等当前 session 完成收尾后，再开始下一条录制。",
     stillSavingShortBody: "请稍等一下，当前录制还在保存。",
     alreadyRecordingTitle: "已经在录制中了",
-    alreadyRecordingBody: "Screen Commander 正在采集当前页面。",
+    alreadyRecordingBody: "UI Commander 正在采集当前页面。",
     unableToStartTitle: "无法开始录制",
-    unableToStartBody: (start) => `Screen Commander 暂时无法用 ${start} 开始这次录制。`,
+    unableToStartBody: (start) => `UI Commander 暂时无法用 ${start} 开始这次录制。`,
     notRecordingTitle: "当前没有在录制",
-    notRecordingBody: (start) => `请先按 ${start} 开始新的 Screen Commander 录制。`,
+    notRecordingBody: (start) => `请先按 ${start} 开始新的 UI Commander 录制。`,
     unableToStopTitle: "无法结束录制",
-    unableToStopBody: (stop) => `Screen Commander 暂时无法用 ${stop} 正常结束这次录制。`,
-    shortcutsTitle: "Screen Commander 快捷键",
+    unableToStopBody: (stop) => `UI Commander 暂时无法用 ${stop} 正常结束这次录制。`,
+    shortcutsTitle: "UI Commander 快捷键",
     shortcutsBody: (start, stop) => `按 ${start} 开始录制当前页面。\n按 ${stop} 结束并保存这次 session。`,
     shortcutsHint: "看到开始提示后，再开口描述问题。",
     extensionReloadTitle: "扩展还没重新 Reload",
@@ -87,7 +87,7 @@ const I18N = {
     recordingStartedNoMicBody: "マイクが使えないため、今回は画面と操作だけを記録します。",
     stopWith: (stop) => `${stop} で停止`,
     savingTitle: "録画を保存しています",
-    savingBody: "Screen Commander が session、文字起こし、review を保存しています。少し待ってください。",
+    savingBody: "UI Commander が session、文字起こし、review を保存しています。少し待ってください。",
     savingHint: "準備が整うとこの表示が更新されます。",
     completeTitle: "録画が完了しました",
     completeBody: "この session は正常に保存されました。",
@@ -98,14 +98,14 @@ const I18N = {
     stillSavingBody: "現在の session の保存が終わるまで、新しい録画の開始を少し待ってください。",
     stillSavingShortBody: "前回の録画をまだ保存中です。少し待ってください。",
     alreadyRecordingTitle: "すでに録画中です",
-    alreadyRecordingBody: "Screen Commander はこのページをすでに記録しています。",
+    alreadyRecordingBody: "UI Commander はこのページをすでに記録しています。",
     unableToStartTitle: "録画を開始できませんでした",
     unableToStartBody: (start) => `${start} でこの録画を開始できませんでした。`,
     notRecordingTitle: "現在は録画していません",
-    notRecordingBody: (start) => `まず ${start} を押して、新しい Screen Commander session を開始してください。`,
+    notRecordingBody: (start) => `まず ${start} を押して、新しい UI Commander session を開始してください。`,
     unableToStopTitle: "録画を停止できませんでした",
     unableToStopBody: (stop) => `${stop} でこの録画を正常に停止できませんでした。`,
-    shortcutsTitle: "Screen Commander ショートカット",
+    shortcutsTitle: "UI Commander ショートカット",
     shortcutsBody: (start, stop) => `${start} でこのページの録画を開始します。\n${stop} で停止して session を保存します。`,
     shortcutsHint: "開始メッセージが出てから話し始めてください。",
     extensionReloadTitle: "拡張機能を再読み込みしてください",
@@ -153,19 +153,19 @@ async function localizedCopy() {
 
 function setIdleBadge() {
   chrome.action.setBadgeText({ text: "" });
-  chrome.action.setTitle({ title: "Screen Commander" });
+  chrome.action.setTitle({ title: "UI Commander" });
 }
 
 function setRecordingBadge() {
   chrome.action.setBadgeBackgroundColor({ color: "#136d3a" });
   chrome.action.setBadgeText({ text: "REC" });
-  chrome.action.setTitle({ title: "Screen Commander: recording" });
+  chrome.action.setTitle({ title: "UI Commander: recording" });
 }
 
 function setFinalizingBadge() {
   chrome.action.setBadgeBackgroundColor({ color: "#8a6116" });
   chrome.action.setBadgeText({ text: "..." });
-  chrome.action.setTitle({ title: "Screen Commander: finalizing" });
+  chrome.action.setTitle({ title: "UI Commander: finalizing" });
 }
 
 function ensurePort() {
@@ -254,7 +254,7 @@ async function ensureOffscreenDocument() {
     offscreenCreatePromise = chrome.offscreen.createDocument({
       url: OFFSCREEN_DOCUMENT_PATH,
       reasons: ["USER_MEDIA"],
-      justification: "Record microphone audio while Screen Commander captures a session."
+      justification: "Record microphone audio while UI Commander captures a session."
     }).finally(() => {
       offscreenCreatePromise = null;
     });
@@ -427,7 +427,7 @@ async function pingContentScript(tabId) {
   try {
     await ensureContentScript(tabId);
     const response = await chrome.tabs.sendMessage(tabId, {
-      type: "screen-commander-ping"
+      type: "ui-commander-ping"
     });
     return response?.ok === true;
   } catch (_error) {
@@ -442,7 +442,7 @@ async function showPageCue(tabId, textOrPayload, tone = "info") {
       ? { text: textOrPayload, tone }
       : { ...textOrPayload, tone: textOrPayload?.tone || tone };
     await chrome.tabs.sendMessage(tabId, {
-      type: "screen-commander-cue",
+      type: "ui-commander-cue",
       text: typeof textOrPayload === "string" ? textOrPayload : textOrPayload?.text,
       tone: payload.tone,
       payload
@@ -458,7 +458,7 @@ async function removePageCue(tabId) {
     await chrome.scripting.executeScript({
       target: { tabId, allFrames: false },
       func: () => {
-        const cue = document.querySelector("[data-screen-commander-cue='true']");
+        const cue = document.querySelector("[data-ui-commander-cue='true']");
         if (cue instanceof HTMLElement) {
           cue.remove();
         }
@@ -468,7 +468,7 @@ async function removePageCue(tabId) {
   } catch (_error) {
     try {
       await chrome.tabs.sendMessage(tabId, {
-        type: "screen-commander-remove-cue"
+        type: "ui-commander-remove-cue"
       });
       return true;
     } catch (_nestedError) {
@@ -481,7 +481,7 @@ async function setContentCaptureState(tabId, enabled) {
   try {
     await ensureContentScript(tabId);
     await chrome.tabs.sendMessage(tabId, {
-      type: "screen-commander-set-capture",
+      type: "ui-commander-set-capture",
       enabled
     });
   } catch (_error) {
@@ -903,7 +903,7 @@ chrome.commands.onCommand.addListener((command) => {
       if (recording && activeTabId !== null) {
         try {
           await chrome.tabs.sendMessage(activeTabId, {
-            type: "screen-commander-command-stop"
+            type: "ui-commander-command-stop"
           });
           return;
         } catch (_error) {
@@ -942,7 +942,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 setIdleBadge();
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "screen-commander-offscreen-keepalive") {
+  if (port.name !== "ui-commander-offscreen-keepalive") {
     return;
   }
 

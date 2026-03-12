@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run an automatic agent task for a finalized screen-commander session."""
+"""Run an automatic agent task for a finalized ui-commander session."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def prompt_for(session_dir: Path, request: dict) -> str:
     transcript = request["artifacts"]["transcript"]
     review_html = request["artifacts"]["review_html"]
     result_lines = [
-        "A Screen Commander session has just finished.",
+        "A UI Commander session has just finished.",
         f"Read {summary}.",
         f"Then inspect {focus_regions}, {transcript}, and {review_html}.",
         "Use the overlay images referenced in summary.review.overlay_images as the visual source of truth.",
@@ -152,7 +152,7 @@ def build_request(session_dir: Path, preferences: dict) -> dict:
 
 
 def workspace_run_dir(project_root: Path, session_id: str) -> Path:
-    return project_root / ".screen-commander" / "runs" / session_id
+    return project_root / ".ui-commander" / "runs" / session_id
 
 
 def copy_if_exists(source: Path, destination: Path) -> Path | None:
@@ -304,7 +304,7 @@ def write_workspace_recording_md(
     live_review_url = summary.get("live_review", {}).get("live_review_url") if isinstance(summary.get("live_review"), dict) else None
     transcript = str(review.get("transcript") or "")
     transcript_preview = transcript.strip() or "No transcript available."
-    content = f"""# Screen Commander Recording
+    content = f"""# UI Commander Recording
 
 ## Summary
 
@@ -346,7 +346,7 @@ def write_workspace_progress_md(
     if events_path.exists():
         lines = [line for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         events_tail = [summarize_agent_event(line) for line in lines[-5:]]
-    content = f"""# Screen Commander Agent Progress
+    content = f"""# UI Commander Agent Progress
 
 ## Status
 
@@ -382,7 +382,7 @@ def write_workspace_result_md(
 ) -> Path:
     result_path = session_dir / "agent-result.md"
     result_body = result_path.read_text(encoding="utf-8").strip() if result_path.exists() else "No agent result yet."
-    content = f"""# Screen Commander Agent Result
+    content = f"""# UI Commander Agent Result
 
 ## Top Line
 
@@ -533,7 +533,7 @@ def write_agent_review_html(session_dir: Path) -> Path:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   {meta_refresh}
-  <title>Screen Commander Agent Status</title>
+  <title>UI Commander Agent Status</title>
   <style>
     :root {{
       --bg: #f6f1e8;
@@ -666,7 +666,7 @@ def write_agent_review_html(session_dir: Path) -> Path:
     <section class="hero">
       <div class="hero-top">
         <div>
-          <h1>Screen Commander Agent Status</h1>
+          <h1>UI Commander Agent Status</h1>
           <p class="hint">This page refreshes automatically while the downstream agent task is running.</p>
         </div>
         <span class="badge">{html.escape(current_status.upper())}</span>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared state paths for screen-commander across local and global installs."""
+"""Shared state paths for ui-commander across local and global installs."""
 
 from __future__ import annotations
 
@@ -10,12 +10,17 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-LEGACY_ROOT = PROJECT_ROOT / ".screen-commander"
-STATE_ROOT = Path.home() / ".screen-commander"
-TEMP_ROOT = Path("/tmp") / "screen-commander"
+WORKSPACE_STATE_ROOT = PROJECT_ROOT / ".ui-commander"
+STATE_ROOT = Path.home() / ".ui-commander"
+TEMP_ROOT = Path("/tmp") / "ui-commander"
+LEGACY_WORKSPACE_ROOT = PROJECT_ROOT / ".screen-commander"
+LEGACY_STATE_ROOT = Path.home() / ".screen-commander"
+LEGACY_TEMP_ROOT = Path("/tmp") / "screen-commander"
 LEGACY_SESSION_ROOTS = (
-    LEGACY_ROOT / "sessions",
-    STATE_ROOT / "sessions",
+    WORKSPACE_STATE_ROOT / "sessions",
+    LEGACY_WORKSPACE_ROOT / "sessions",
+    LEGACY_STATE_ROOT / "sessions",
+    LEGACY_TEMP_ROOT / "sessions",
 )
 
 
@@ -142,12 +147,14 @@ def locate_session_dir(session_id: str) -> Path | None:
 
 def migrate_legacy_state() -> None:
     ensure_state_root()
-    if not LEGACY_ROOT.exists() or LEGACY_ROOT.resolve() == STATE_ROOT.resolve():
-        return
-
-    for name in ("preferences.json", "runtime-state.json", "language-profile.json", "session-server.json", "native-host.log"):
-        source = LEGACY_ROOT / name
-        target = STATE_ROOT / name
-        if source.exists() and not target.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+    for legacy_root in (LEGACY_STATE_ROOT, LEGACY_WORKSPACE_ROOT):
+        if not legacy_root.exists():
+            continue
+        if legacy_root.resolve() == STATE_ROOT.resolve():
+            continue
+        for name in ("preferences.json", "runtime-state.json", "language-profile.json", "session-server.json", "native-host.log", "python-bin"):
+            source = legacy_root / name
+            target = STATE_ROOT / name
+            if source.exists() and not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)

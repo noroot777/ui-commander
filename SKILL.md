@@ -1,10 +1,10 @@
-name: screen-commander
-description: Capture a frontend bug reproduction inside the user's existing Chrome session, or resume from an existing Screen Commander session URL, then turn the session into structured artifacts for any local coding agent to inspect. Use this skill when the user wants to demonstrate a bug by clicking through the real app, narrating what should happen, handing the resulting session to an agent for analysis, or simply pasting text like `使用screen commander分析 http://127.0.0.1:47321/sessions/<session-id>/live` or `使用screen commander分析并直接修复 http://127.0.0.1:47321/sessions/<session-id>/live`.
+name: ui-commander
+description: Capture a frontend bug reproduction inside the user's existing Chrome session, or resume from an existing UI Commander session URL, then turn the session into structured artifacts for any local coding agent to inspect. Use this skill when the user wants to demonstrate a bug by clicking through the real app, narrating what should happen, handing the resulting session to an agent for analysis, or simply pasting text like `使用ui commander分析 http://127.0.0.1:47321/sessions/<session-id>/live` or `使用ui commander分析并直接修复 http://127.0.0.1:47321/sessions/<session-id>/live`.
 ---
 
-# Screen Commander
+# UI Commander
 
-Use this skill when the user wants to show a frontend bug in their normal Chrome session instead of describing it in text, or when the user already has a Screen Commander session URL and wants the agent to continue from that recorded session. Also trigger it when the user pastes a ready-made prompt such as `使用screen commander分析 <session-url>` or `使用screen commander分析并直接修复 <session-url>`.
+Use this skill when the user wants to show a frontend bug in their normal Chrome session instead of describing it in text, or when the user already has a UI Commander session URL and wants the agent to continue from that recorded session. Also trigger it when the user pastes a ready-made prompt such as `使用ui commander分析 <session-url>` or `使用ui commander分析并直接修复 <session-url>`.
 
 The skill has one job: convert a narrated browser reproduction into structured session artifacts.
 
@@ -16,7 +16,7 @@ Default to a fresh recording on every new trigger. Ignore any previously recorde
 
 ## Workflow
 
-1. If the user already provided a Screen Commander session URL or session id, resolve that session immediately and continue from its artifacts. Do not ask the user to record again unless they explicitly want a fresh repro.
+1. If the user already provided a UI Commander session URL or session id, resolve that session immediately and continue from its artifacts. Do not ask the user to record again unless they explicitly want a fresh repro.
 2. Otherwise, default the target project to the current workspace. Only override it when the user explicitly wants to send the session to a different repo.
 3. Keep saved transcription preferences as-is by default. Only ask for narration language when it is clearly missing and will block understanding later.
 4. Do not ask about transcription models by default. Only change models when the current transcript quality is poor or the user explicitly asks. When the user chooses a stronger model, persist that model so future sessions keep using it afterwards.
@@ -30,7 +30,7 @@ Default to a fresh recording on every new trigger. Ignore any previously recorde
 
 ## Existing Session URLs
 
-When the user provides a localhost Screen Commander URL such as `http://127.0.0.1:47321/sessions/<session-id>/live`, or gives a raw session id, skip watch mode and resolve it directly:
+When the user provides a localhost UI Commander URL such as `http://127.0.0.1:47321/sessions/<session-id>/live`, or gives a raw session id, skip watch mode and resolve it directly:
 
 ```bash
 <python-bin> <skill-dir>/scripts/session_locator.py "<session-url-or-id>"
@@ -130,13 +130,13 @@ Only use `--open` for a genuine first-time install or when the user explicitly a
 
 This script checks dependencies, registers the Chrome Native Messaging host, opens `chrome://extensions`, and opens the unpacked extension directory in Finder.
 
-The extension talks to the local native host `dev.codex.screen_commander`. The host is short-lived: it starts when Chrome opens a native messaging connection, writes session data, finalizes artifacts, and exits when the session is done.
+The extension talks to the local native host `dev.codex.ui_commander`. The host is short-lived: it starts when Chrome opens a native messaging connection, writes session data, finalizes artifacts, and exits when the session is done.
 
 ## Step 4: Run a session
 
 Recording is controlled by shortcuts while Chrome is focused:
 - press `Option+S` once to start recording
-- wait for the page cue `Screen Commander is recording. Start speaking now.`
+- wait for the page cue `UI Commander is recording. Start speaking now.`
 - reproduce the bug in the real app
 - narrate the expected behavior and the actual behavior
 - press `Option+E` to stop and wait for the completion cue
@@ -154,7 +154,7 @@ The extension captures:
 - network requests, responses, and loading failures
 - microphone narration from the local companion, using the current macOS default input device
 
-The native host writes raw session directories under `/tmp/screen-commander/sessions/`, grouped by project when a workspace is known. Long-lived preferences and runtime state stay under `~/.screen-commander/`.
+The native host writes raw session directories under `/tmp/ui-commander/sessions/`, grouped by project when a workspace is known. Long-lived preferences and runtime state stay under `~/.ui-commander/`.
 
 ## Step 5: Finalize artifacts
 
@@ -167,7 +167,7 @@ If needed, run finalization manually:
 Read the latest session summary from the newest shared session directory:
 
 ```text
-/tmp/screen-commander/sessions/<project-slug>/<session-id>/summary.json
+/tmp/ui-commander/sessions/<project-slug>/<session-id>/summary.json
 ```
 
 Or locate the newest session with:

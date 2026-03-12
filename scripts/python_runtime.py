@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve a usable Python executable for screen-commander."""
+"""Resolve a usable Python executable for ui-commander."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def _candidate_paths(preferred: str | None = None) -> list[str]:
     candidates: list[str] = []
     for candidate in (
         preferred,
-        os.environ.get("SCREEN_COMMANDER_PYTHON"),
+        os.environ.get("UI_COMMANDER_PYTHON"),
         sys.executable,
         shutil.which("python3"),
         shutil.which("python"),
@@ -43,7 +43,7 @@ def resolve_python_executable(preferred: str | None = None) -> str:
         discovered = shutil.which(candidate)
         if discovered:
             return discovered
-    raise RuntimeError("Unable to find a usable Python 3 executable for screen-commander")
+    raise RuntimeError("Unable to find a usable Python 3 executable for ui-commander")
 
 
 def quoted_python_executable(preferred: str | None = None) -> str:

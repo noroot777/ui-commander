@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print a compact review payload for a screen-commander session."""
+"""Print a compact review payload for a ui-commander session."""
 
 from __future__ import annotations
 

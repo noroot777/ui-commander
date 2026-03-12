@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report the local readiness state for screen-commander."""
+"""Report the local readiness state for ui-commander."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate local dependencies for screen-commander."""
+"""Validate local dependencies for ui-commander."""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ def main() -> int:
     ok = True
     optional_ok: dict[str, bool] = {}
 
-    print("Checking screen-commander dependencies")
+    print("Checking ui-commander dependencies")
     print()
 
     ok = check_chrome() and ok
