@@ -30,6 +30,7 @@ except Exception:  # noqa: BLE001
     Image = None
     ImageDraw = None
 
+from intent_fusion import prepare_intent_artifacts, preserve_resolved_resolution
 from preferences_store import read_preferences, normalize_language_tag
 from runtime_state import read_runtime_state, write_runtime_state
 from state_paths import (
@@ -453,6 +454,293 @@ def focus_region_score(gesture: str, duration_ms: int, sample_count: int, click_
     return score
 
 
+def gesture_priority(gesture: str) -> int:
+    order = {
+        "click_focus": 4,
+        "circle_like": 3,
+        "hover": 2,
+        "pointer_focus": 1,
+    }
+    return order.get(gesture, 0)
+
+
+def bbox_area(bbox: dict[str, int] | None) -> int:
+    if not isinstance(bbox, dict):
+        return 0
+    return max(int(bbox.get("width", 0) or 0), 0) * max(int(bbox.get("height", 0) or 0), 0)
+
+
+def bbox_overlap_area(first: dict[str, int] | None, second: dict[str, int] | None) -> int:
+    if not isinstance(first, dict) or not isinstance(second, dict):
+        return 0
+    left = max(int(first.get("x_min", 0)), int(second.get("x_min", 0)))
+    top = max(int(first.get("y_min", 0)), int(second.get("y_min", 0)))
+    right = min(int(first.get("x_max", 0)), int(second.get("x_max", 0)))
+    bottom = min(int(first.get("y_max", 0)), int(second.get("y_max", 0)))
+    if right <= left or bottom <= top:
+        return 0
+    return (right - left) * (bottom - top)
+
+
+def bbox_containment_ratio(container: dict[str, int] | None, candidate: dict[str, int] | None) -> float:
+    candidate_area = bbox_area(candidate)
+    if candidate_area <= 0:
+        return 0.0
+    return bbox_overlap_area(container, candidate) / candidate_area
+
+
+def region_time_gap_ms(first: dict, second: dict) -> int:
+    return max(
+        0,
+        max(int(first.get("start_time", 0)), int(second.get("start_time", 0)))
+        - min(int(first.get("end_time", 0)), int(second.get("end_time", 0))),
+    )
+
+
+def region_centroid_distance(first: dict, second: dict) -> float:
+    first_centroid = first.get("centroid", {}) if isinstance(first.get("centroid"), dict) else {}
+    second_centroid = second.get("centroid", {}) if isinstance(second.get("centroid"), dict) else {}
+    return point_distance(
+        (float(first_centroid.get("x") or 0.0), float(first_centroid.get("y") or 0.0)),
+        (float(second_centroid.get("x") or 0.0), float(second_centroid.get("y") or 0.0)),
+    )
+
+
+def choose_target_from_regions(regions: list[dict]) -> dict | None:
+    weighted_targets: dict[str, dict[str, object]] = {}
+    fallback_target = None
+    for region in regions:
+        target = region.get("target")
+        if not isinstance(target, dict):
+            continue
+        fallback_target = target
+        signature = target_signature(target)
+        if not signature:
+            continue
+        weight = int(region.get("attention_score", 0) or 0) + int(region.get("click_count", 0) or 0) * 900
+        bucket = weighted_targets.setdefault(signature, {"target": target, "weight": 0})
+        bucket["weight"] = int(bucket["weight"]) + max(weight, 1)
+        chosen = bucket["target"]
+        chosen_text = str(chosen.get("text") or "")
+        target_text = str(target.get("text") or "")
+        if len(target_text) > len(chosen_text):
+            bucket["target"] = target
+    if not weighted_targets:
+        return fallback_target
+    best = max(weighted_targets.values(), key=lambda item: int(item["weight"]))
+    return best.get("target") if isinstance(best.get("target"), dict) else fallback_target
+
+
+def render_focus_region_from_points(
+    session_path: Path,
+    region_id: int,
+    path_points: list[dict],
+    bbox: dict[str, int],
+    viewport: dict | None,
+    events: list[dict],
+    midpoint_time: int,
+) -> dict[str, str | None]:
+    render_events = [
+        {
+            "time": point.get("time"),
+            "x": point.get("x"),
+            "y": point.get("y"),
+            "viewport": viewport,
+        }
+        for point in path_points
+        if isinstance(point.get("x"), int) and isinstance(point.get("y"), int)
+    ]
+    return render_focus_region_artifacts(
+        session_path=session_path,
+        region_id=region_id,
+        group=render_events,
+        bbox={
+            "x_min": bbox["x_min"],
+            "y_min": bbox["y_min"],
+            "x_max": bbox["x_max"],
+            "y_max": bbox["y_max"],
+        },
+        keyframe_event=nearest_keyframe(events, midpoint_time),
+    )
+
+
+def build_region_from_merge(session_path: Path, region_id: int, regions: list[dict], events: list[dict]) -> dict:
+    ordered_regions = sorted(regions, key=lambda item: int(item.get("start_time", 0)))
+    ordered_points = sorted(
+        [
+            point
+            for region in ordered_regions
+            for point in region.get("path_points", [])
+            if isinstance(point, dict) and isinstance(point.get("time"), int)
+        ],
+        key=lambda item: int(item.get("time", 0)),
+    )
+    start_time = min(int(region.get("start_time", 0)) for region in ordered_regions)
+    end_time = max(int(region.get("end_time", 0)) for region in ordered_regions)
+    duration_ms = max(0, end_time - start_time)
+    click_count = sum(int(region.get("click_count", 0) or 0) for region in ordered_regions)
+    bbox = {
+        "x_min": min(int(region.get("bbox", {}).get("x_min", 0)) for region in ordered_regions),
+        "y_min": min(int(region.get("bbox", {}).get("y_min", 0)) for region in ordered_regions),
+        "x_max": max(int(region.get("bbox", {}).get("x_max", 0)) for region in ordered_regions),
+        "y_max": max(int(region.get("bbox", {}).get("y_max", 0)) for region in ordered_regions),
+    }
+    bbox["width"] = max(bbox["x_max"] - bbox["x_min"], 1)
+    bbox["height"] = max(bbox["y_max"] - bbox["y_min"], 1)
+    xs = [int(point["x"]) for point in ordered_points if isinstance(point.get("x"), int)]
+    ys = [int(point["y"]) for point in ordered_points if isinstance(point.get("y"), int)]
+    gesture = max(
+        (str(region.get("gesture") or "pointer_focus") for region in ordered_regions),
+        key=gesture_priority,
+    )
+    viewport = next(
+        (
+            region.get("viewport")
+            for region in sorted(ordered_regions, key=lambda item: -int(item.get("attention_score", 0) or 0))
+            if isinstance(region.get("viewport"), dict)
+        ),
+        None,
+    )
+    attention_score = focus_region_score(gesture, duration_ms, len(ordered_points), click_count)
+    artifacts = render_focus_region_from_points(
+        session_path=session_path,
+        region_id=region_id,
+        path_points=ordered_points,
+        bbox=bbox,
+        viewport=viewport,
+        events=events,
+        midpoint_time=int((start_time + end_time) / 2),
+    )
+    return {
+        "region_id": region_id,
+        "start_time": start_time,
+        "end_time": end_time,
+        "duration_ms": duration_ms,
+        "sample_count": len(ordered_points),
+        "gesture": gesture,
+        "attention_score": attention_score,
+        "click_count": click_count,
+        "centroid": {
+            "x": round(sum(xs) / len(xs), 1) if xs else 0.0,
+            "y": round(sum(ys) / len(ys), 1) if ys else 0.0,
+        },
+        "bbox": bbox,
+        "target": choose_target_from_regions(ordered_regions),
+        "viewport": viewport,
+        "artifacts": artifacts,
+        "path_points": ordered_points,
+    }
+
+
+def should_merge_focus_regions(first: dict, second: dict) -> bool:
+    first_bbox = first.get("bbox")
+    second_bbox = second.get("bbox")
+    containment = max(
+        bbox_containment_ratio(first_bbox, second_bbox),
+        bbox_containment_ratio(second_bbox, first_bbox),
+    )
+    overlap_ratio = 0.0
+    smallest_area = min(bbox_area(first_bbox), bbox_area(second_bbox))
+    if smallest_area > 0:
+        overlap_ratio = bbox_overlap_area(first_bbox, second_bbox) / smallest_area
+    time_gap_ms = region_time_gap_ms(first, second)
+    centroid_distance = region_centroid_distance(first, second)
+    first_signature = target_signature(first.get("target"))
+    second_signature = target_signature(second.get("target"))
+    same_signature = bool(first_signature and second_signature and first_signature == second_signature)
+    first_selector = str((first.get("target") or {}).get("selector") or "")
+    second_selector = str((second.get("target") or {}).get("selector") or "")
+    same_selector = bool(first_selector and second_selector and first_selector == second_selector)
+    max_attention = max(int(first.get("attention_score", 0) or 0), int(second.get("attention_score", 0) or 0))
+    min_attention = min(int(first.get("attention_score", 0) or 0), int(second.get("attention_score", 0) or 0))
+    shorter_duration_ms = min(int(first.get("duration_ms", 0) or 0), int(second.get("duration_ms", 0) or 0))
+    click_count = int(first.get("click_count", 0) or 0) + int(second.get("click_count", 0) or 0)
+
+    if same_signature and containment >= 0.7 and time_gap_ms <= 7000 and click_count == 0:
+        return True
+    if same_signature and overlap_ratio >= 0.55 and centroid_distance <= 220 and time_gap_ms <= 3000:
+        return True
+    if same_selector and first_selector == "canvas" and overlap_ratio >= 0.95 and centroid_distance <= 40 and time_gap_ms <= 3000:
+        return True
+    if containment >= 0.88 and centroid_distance <= 120 and time_gap_ms <= 7000 and min_attention * 2 <= max_attention and shorter_duration_ms <= 2500 and click_count == 0:
+        return True
+    return False
+
+
+def merge_focus_regions(session_path: Path, focus_regions: list[dict], events: list[dict]) -> list[dict]:
+    if len(focus_regions) <= 1:
+        return focus_regions
+
+    ordered = sorted(focus_regions, key=lambda item: int(item.get("start_time", 0)))
+    groups: list[list[dict]] = []
+    consumed: set[int] = set()
+    for index, region in enumerate(ordered):
+        region_id = int(region.get("region_id", index + 1))
+        if region_id in consumed:
+            continue
+        group = [region]
+        consumed.add(region_id)
+        changed = True
+        while changed:
+            changed = False
+            for candidate in ordered:
+                candidate_id = int(candidate.get("region_id", 0))
+                if candidate_id in consumed:
+                    continue
+                if any(should_merge_focus_regions(member, candidate) for member in group):
+                    group.append(candidate)
+                    consumed.add(candidate_id)
+                    changed = True
+        groups.append(group)
+
+    merged_regions = [
+        build_region_from_merge(session_path, region_id=index + 1, regions=group, events=events)
+        for index, group in enumerate(groups)
+    ]
+    merged_regions.sort(
+        key=lambda item: (
+            -int(item.get("attention_score", 0)),
+            int(item.get("start_time", 0)),
+        )
+    )
+    for index, region in enumerate(merged_regions, start=1):
+        region["region_id"] = index
+    for region in merged_regions:
+        bbox = region.get("bbox")
+        path_points = region.get("path_points", [])
+        viewport = region.get("viewport") if isinstance(region.get("viewport"), dict) else None
+        if not isinstance(bbox, dict):
+            continue
+        region["artifacts"] = render_focus_region_from_points(
+            session_path=session_path,
+            region_id=int(region.get("region_id", 0) or 0),
+            path_points=path_points,
+            bbox=bbox,
+            viewport=viewport,
+            events=events,
+            midpoint_time=int((int(region.get("start_time", 0)) + int(region.get("end_time", 0))) / 2),
+        )
+    return merged_regions
+
+
+def cleanup_focus_region_artifacts(session_path: Path, focus_regions: list[dict]) -> None:
+    focus_dir = session_path / "focus_regions"
+    if not focus_dir.exists():
+        return
+    keep_names = {
+        Path(path).name
+        for region in focus_regions
+        for path in (
+            (region.get("artifacts", {}) or {}).get("overlay"),
+            (region.get("artifacts", {}) or {}).get("crop"),
+        )
+        if isinstance(path, str)
+    }
+    for artifact in focus_dir.glob("region-*.png"):
+        if artifact.name not in keep_names:
+            artifact.unlink(missing_ok=True)
+
+
 def make_focus_region(session_path: Path, region_id: int, region_events: list[dict], events: list[dict], gesture: str) -> dict | None:
     if not region_events:
         return None
@@ -469,6 +757,7 @@ def make_focus_region(session_path: Path, region_id: int, region_events: list[di
     duration_ms = max(0, end_time - start_time)
     click_count = sum(1 for event in region_events if event.get("type") in {"click", "dblclick"})
     score = focus_region_score(gesture, duration_ms, len(region_events), click_count)
+    viewport = region_events[-1].get("viewport") if isinstance(region_events[-1].get("viewport"), dict) else None
     midpoint_time = int((start_time + end_time) / 2)
     artifacts = render_focus_region_artifacts(
         session_path=session_path,
@@ -497,6 +786,7 @@ def make_focus_region(session_path: Path, region_id: int, region_events: list[di
         },
         "bbox": bbox,
         "target": target,
+        "viewport": viewport,
         "artifacts": artifacts,
         "path_points": [
             {
@@ -860,9 +1150,12 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
         item for item in review.get("referential_mentions", []) if isinstance(item, dict)
     ]
     transcription = summary.get("transcription", {}) if isinstance(summary.get("transcription"), dict) else {}
+    llm_intent = summary.get("llm_intent", {}) if isinstance(summary.get("llm_intent"), dict) else {}
     model_name = str(transcription.get("model") or "unknown")
     selected_language = str(transcription.get("selected_language") or "auto")
     transcript_status = str(summary.get("transcript_status") or "unknown")
+    llm_status = str(llm_intent.get("status") or "not_run")
+    llm_model = str(llm_intent.get("model") or "n/a")
 
     image_cards = []
     for label, items in (
@@ -918,6 +1211,56 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
         + "</div></section>"
         if mention_cards
         else ""
+    )
+    resolved_intents = [
+        item for item in llm_intent.get("resolved_intents", []) if isinstance(item, dict)
+    ]
+    ambiguity_items = [
+        item for item in llm_intent.get("ambiguities", []) if isinstance(item, dict)
+    ]
+    intent_cards = []
+    for item in resolved_intents:
+        region_ids = ", ".join(str(region_id) for region_id in item.get("target_region_ids", []) if isinstance(region_id, int))
+        segment_indexes = ", ".join(str(index) for index in item.get("segment_indexes", []) if isinstance(index, int))
+        detail_parts = []
+        if segment_indexes:
+            detail_parts.append(f"Segments: {segment_indexes}")
+        if region_ids:
+            detail_parts.append(f"Regions: {region_ids}")
+        confidence = item.get("confidence")
+        if isinstance(confidence, (int, float)):
+            detail_parts.append(f"Confidence: {round(float(confidence), 2)}")
+        intent_cards.append(
+            "<article class=\"mention-card\">"
+            f"<div class=\"mention-text\">{html.escape(str(item.get('intent') or ''))}</div>"
+            f"<div class=\"mention-meta\">{html.escape(str(item.get('scope') or ''))}</div>"
+            f"<div class=\"mention-meta\">{' | '.join(detail_parts)}</div>"
+            f"<div class=\"mention-meta\">{html.escape(str(item.get('reason') or ''))}</div>"
+            "</article>"
+        )
+    ambiguity_cards = []
+    for item in ambiguity_items:
+        segment_indexes = ", ".join(str(index) for index in item.get("segment_indexes", []) if isinstance(index, int))
+        detail_parts = []
+        if segment_indexes:
+            detail_parts.append(f"Segments: {segment_indexes}")
+        ambiguity_cards.append(
+            "<article class=\"mention-card\">"
+            f"<div class=\"mention-text\">{html.escape(str(item.get('question') or ''))}</div>"
+            f"<div class=\"mention-meta\">{' | '.join(detail_parts)}</div>"
+            f"<div class=\"mention-meta\">{html.escape(str(item.get('reason') or ''))}</div>"
+            "</article>"
+        )
+    llm_reason = html.escape(str(llm_intent.get("reason") or ""))
+    llm_summary = html.escape(str(llm_intent.get("overall_summary") or ""))
+    llm_section = (
+        "<section><h2>LLM Intent Fusion</h2>"
+        f"<p class=\"hint\">Status: {html.escape(llm_status)} | Model: {html.escape(llm_model)}</p>"
+        + (f"<p class=\"transcript\">{llm_summary}</p>" if llm_summary else "")
+        + (f"<p class=\"hint\">{llm_reason}</p>" if llm_reason else "")
+        + ("<div class=\"mention-list\">" + "".join(intent_cards) + "</div>" if intent_cards else "")
+        + ("<h2>Open Questions</h2><div class=\"mention-list\">" + "".join(ambiguity_cards) + "</div>" if ambiguity_cards else "")
+        + "</section>"
     )
     page = f"""<!doctype html>
 <html lang="en">
@@ -1065,12 +1408,17 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
           <div class="label">Language</div>
           <div class="value">{html.escape(selected_language)}</div>
         </div>
+        <div class="meta-card">
+          <div class="label">LLM Intent</div>
+          <div class="value">{html.escape(llm_status)}</div>
+        </div>
       </div>
     </section>
     <section>
       <h2>Recognized Transcript</h2>
       <p class="transcript">{transcript_html}</p>
     </section>
+    {llm_section}
     {referential_section}
     {"".join(image_cards)}
   </main>
@@ -1601,6 +1949,8 @@ def build_focus_regions(session_path: Path, events: list[dict]) -> list[dict]:
         events=events,
         next_region_id=region_id,
     )
+    focus_regions = merge_focus_regions(session_path, focus_regions, events)
+    cleanup_focus_region_artifacts(session_path, focus_regions)
 
     focus_regions.sort(
         key=lambda item: (
@@ -1736,6 +2086,33 @@ def finalize_session(payload: dict) -> dict:
 
     write_json(path / "segments.json", enriched_segments)
     write_json(path / "referential_mentions.json", referential_mentions)
+    preferences = read_preferences()
+    llm_artifacts = prepare_intent_artifacts(
+        session_id=session_id,
+        transcript=transcript,
+        segments=enriched_segments,
+        referential_mentions=referential_mentions,
+        focus_regions=focus_regions,
+        timeline=timeline,
+        console_logs=console_logs,
+        network_logs=network_logs,
+        preferences=preferences,
+    )
+    llm_evidence = llm_artifacts.get("evidence", {}) if isinstance(llm_artifacts.get("evidence"), dict) else {}
+    llm_intent = llm_artifacts.get("resolution", {}) if isinstance(llm_artifacts.get("resolution"), dict) else {}
+    existing_intent = read_json(path / "intent_resolution.json", {})
+    preserved_intent = preserve_resolved_resolution(
+        existing_intent,
+        evidence_hash=str(llm_evidence.get("evidence_hash") or ""),
+    )
+    if preserved_intent:
+        llm_intent = preserved_intent
+        log_line(
+            "finalize_session preserve_resolved_intent "
+            f"session_id={session_id} evidence_hash={llm_evidence.get('evidence_hash')!r}"
+        )
+    write_json(path / "intent_evidence.json", llm_evidence)
+    write_json(path / "intent_resolution.json", llm_intent)
 
     meta = read_json(path / "session.json", {})
     if isinstance(meta, dict):
@@ -1758,6 +2135,9 @@ def finalize_session(payload: dict) -> dict:
         "has_transcript": bool(transcript),
         "transcript_status": transcript_status,
         "transcription": transcription,
+        "llm_intent_status": str(llm_intent.get("status") or "not_run"),
+        "llm_resolved_intent_count": len(llm_intent.get("resolved_intents", [])) if isinstance(llm_intent.get("resolved_intents"), list) else 0,
+        "llm_intent": llm_intent,
         "dependencies": dependencies,
         "extension": extension,
         "review": {
@@ -1778,6 +2158,7 @@ def finalize_session(payload: dict) -> dict:
                 if item.get("artifacts", {}).get("keyframe")
             ],
             "referential_mentions": referential_mentions,
+            "intent_resolution": llm_intent,
         },
         "artifacts": {
             "session": str(path / "session.json"),
@@ -1791,20 +2172,42 @@ def finalize_session(payload: dict) -> dict:
             "transcript": str(path / "transcript.txt"),
             "segments": str(path / "segments.json"),
             "referential_mentions": str(path / "referential_mentions.json"),
+            "intent_evidence": str(path / "intent_evidence.json"),
+            "intent_resolution": str(path / "intent_resolution.json"),
             "screenshots_dir": str(path / "screenshots"),
         },
     }
     review_html_path = generate_review_html(path, summary)
     summary["review"]["html"] = str(review_html_path)
     summary["artifacts"]["review_html"] = str(review_html_path)
+    # Persist the core review bundle before optional follow-on work so sessions remain usable
+    # even if the live server or orchestrator step is slow or fails.
+    write_json(path / "summary.json", summary)
+    review_opened = try_open_local_file(review_html_path)
+    log_line(f"finalize_session review_ready session_id={session_id} opened={review_opened}")
+    log_line(f"finalize_session ensure_live_server_start session_id={session_id}")
     live_server = ensure_live_server(session_id)
+    log_line(
+        "finalize_session ensure_live_server_done "
+        f"session_id={session_id} started={live_server.get('started') if isinstance(live_server, dict) else None} "
+        f"reused={live_server.get('reused') if isinstance(live_server, dict) else None} "
+        f"error={live_server.get('error') if isinstance(live_server, dict) else None}"
+    )
     summary["live_review"] = live_server
+    log_line(f"finalize_session launch_orchestrator_start session_id={session_id}")
     orchestrator = launch_orchestrator(session_id)
+    log_line(
+        "finalize_session launch_orchestrator_done "
+        f"session_id={session_id} triggered={orchestrator.get('triggered') if isinstance(orchestrator, dict) else None} "
+        f"error={orchestrator.get('error') if isinstance(orchestrator, dict) else None}"
+    )
     summary["orchestrator"] = orchestrator
     summary["artifacts"]["agent_review_html"] = str(path / "agent-review.html")
     write_json(path / "summary.json", summary)
     live_review_url = live_server.get("live_review_url") if isinstance(live_server, dict) else None
-    review_opened = try_open_url(live_review_url) if isinstance(live_review_url, str) else try_open_local_file(review_html_path)
+    if isinstance(live_review_url, str):
+        review_opened = try_open_url(live_review_url) or review_opened
+    log_line(f"finalize_session complete session_id={session_id} review_opened={review_opened}")
     return {
         "ok": True,
         "summary_path": str(path / "summary.json"),

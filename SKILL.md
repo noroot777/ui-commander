@@ -38,6 +38,20 @@ When the user provides a localhost Screen Commander URL such as `http://127.0.0.
 
 This returns the resolved session directory, `summary.json`, review info, and artifact paths so the current thread can continue immediately from that session.
 
+If the resolved session includes `intent_resolution.json` with `status=pending_host_fusion`, do not call an external API from the local companion. Instead, generate the host-fusion prompt from `intent_evidence.json`, use the current Codex thread to resolve the intent from that evidence bundle, then persist the structured result with:
+
+```bash
+<python-bin> <skill-dir>/scripts/intent_resolution.py prompt --session <session-id>
+```
+
+Treat that generated prompt as the primary source of truth for the fusion step. Do not handcraft the JSON from unrelated files first when the evidence bundle exists.
+
+Then persist the structured result with:
+
+```bash
+<python-bin> <skill-dir>/scripts/intent_resolution.py write --session <session-id> --input <json-file-or-stdin>
+```
+
 Use blocking watch mode on every normal trigger:
 - run `<python-bin> <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id>`
 - this temporarily suppresses background `auto_run` while waiting for the next finalized session
@@ -195,6 +209,8 @@ Read:
 - `interaction_timeline.json`
 - `focus_regions.json`
 - `referential_mentions.json`
+- `intent_evidence.json`
+- `intent_resolution.json`
 - `focus_regions/`
 - `console_logs.jsonl`
 - `network_logs.jsonl`
@@ -205,6 +221,8 @@ Read:
 If `summary.json` contains `extension.reload_required=true`, tell the user plainly that Chrome is still using an older unpacked extension build than the current skill files, and ask them to reload the extension in `chrome://extensions` before trusting the next recording.
 
 Use the timeline as the primary source of truth for click or input workflows. Use `focus_regions.json` when the user mostly pointed, hovered, or drew circles instead of clicking. Use `referential_mentions.json` when the transcript contains phrases like "this", "that", "这个", or "这两个"; it links those phrases to nearby pointer hotspots by time. For each focus region, prefer the generated overlay and crop images in `focus_regions/` over raw bbox guessing.
+
+If `intent_resolution.json` is already `resolved`, prefer it as the highest-level intent summary. If it is `pending_host_fusion`, first run `scripts/intent_resolution.py prompt --session <session-id>`, use that evidence-driven prompt to resolve the user's intent in the current thread, and write the result back before summarizing.
 
 Then summarize your understanding back to the user in a short numbered list before editing code.
 

@@ -38,6 +38,8 @@ Core files:
 - `transcript.txt` - narration transcript when available
 - `segments.json` - transcript segments, including absolute timeline alignment and nearby focus-region ids when available
 - `referential_mentions.json` - phrases like "this", "that", "这个", or "这两个" with their time range and best nearby pointer hotspots
+- `intent_evidence.json` - compact evidence bundle prepared for host-thread intent fusion
+- `intent_resolution.json` - host-thread or agent-resolved user intent, ambiguities, and target region ids
 - `screenshots/` - screenshots keyed by event id plus periodic keyframes under `screenshots/keyframes/`
 - `summary.json` - quick entry point for agents
 - `summary.json.extension` - recorded extension version, current skill extension version, and whether the user needs to reload the unpacked Chrome extension
@@ -47,4 +49,4 @@ Core files:
 - `agent-status.json` - orchestrator execution status
 - `agent-result.md` - final agent output when orchestration is enabled
 
-Timeline items are intended to be the first artifact an agent reads for click-heavy reproductions. For pointer-only reproductions, read `focus_regions.json` immediately after `summary.json`, then inspect the matching files in `focus_regions/`. If the transcript uses deictic language such as "this area" or "these two buttons", read `referential_mentions.json` next to see which pointer hotspot was active around that phrase.
+Timeline items are intended to be the first artifact an agent reads for click-heavy reproductions. For pointer-only reproductions, read `focus_regions.json` immediately after `summary.json`, then inspect the matching files in `focus_regions/`. If the transcript uses deictic language such as "this area" or "these two buttons", read `referential_mentions.json` next to see which pointer hotspot was active around that phrase. When `intent_resolution.json` is `resolved`, prefer it as the highest-level fusion layer. When its status is `pending_host_fusion`, first generate the evidence-driven host-fusion prompt with `scripts/intent_resolution.py prompt --session <session-id>`, use that prompt in the current Codex thread, then persist the result with `scripts/intent_resolution.py write`.

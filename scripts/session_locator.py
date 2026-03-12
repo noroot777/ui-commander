@@ -52,11 +52,23 @@ def read_json(path: Path, default: object) -> object:
 def build_payload(session_dir: Path) -> dict[str, object]:
     summary_path = session_dir / "summary.json"
     summary = read_json(summary_path, {})
+    script_dir = Path(__file__).resolve().parent
+    llm_intent = summary.get("llm_intent", {}) if isinstance(summary, dict) else {}
+    llm_status = str(llm_intent.get("status") or "")
+    host_fusion = {
+        "status": llm_status,
+        "needs_resolution": llm_status == "pending_host_fusion",
+        "prompt_command": f"python3 {script_dir / 'intent_resolution.py'} prompt --session {session_dir.name}",
+        "show_command": f"python3 {script_dir / 'intent_resolution.py'} show --session {session_dir.name}",
+        "write_command": f"python3 {script_dir / 'intent_resolution.py'} write --session {session_dir.name} --input <json-file-or-stdin>",
+    }
     return {
         "session_id": session_dir.name,
         "session_dir": str(session_dir),
         "summary": str(summary_path),
         "review": summary.get("review", {}) if isinstance(summary, dict) else {},
+        "llm_intent": llm_intent,
+        "host_fusion": host_fusion,
         "live_review": summary.get("live_review", {}) if isinstance(summary, dict) else {},
         "orchestrator": summary.get("orchestrator", {}) if isinstance(summary, dict) else {},
         "artifacts": summary.get("artifacts", {}) if isinstance(summary, dict) else {},

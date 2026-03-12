@@ -143,6 +143,8 @@ def build_request(session_dir: Path, preferences: dict) -> dict:
             "focus_regions": str(session_dir / "focus_regions.json"),
             "transcript": str(session_dir / "transcript.txt"),
             "segments": str(session_dir / "segments.json"),
+            "intent_evidence": str(session_dir / "intent_evidence.json"),
+            "intent_resolution": str(session_dir / "intent_resolution.json"),
             "review_html": str((session_dir / "review.html")),
             "overlay_images": review.get("overlay_images", []),
         },

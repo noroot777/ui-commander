@@ -27,6 +27,10 @@ def parse_args() -> argparse.Namespace:
     set_parser = subparsers.add_parser("set")
     set_parser.add_argument("--model", help="transcription model name")
     set_parser.add_argument("--language", help="preferred language tag, such as zh or en")
+    set_parser.add_argument("--llm", help="on or off")
+    set_parser.add_argument("--llm-model", help="llm intent fusion model name")
+    set_parser.add_argument("--llm-images", help="on or off")
+    set_parser.add_argument("--llm-max-regions", type=int, help="max focus regions to send to llm")
     set_parser.add_argument("--orchestrator", help="on or off")
     set_parser.add_argument("--orchestrator-mode", help="suggest or apply")
     set_parser.add_argument("--project-root", help="target project root for automatic agent runs")
@@ -40,6 +44,10 @@ def main() -> int:
         payload = update_preferences(
             model=args.model,
             preferred_language=args.language,
+            llm_intent_enabled=parse_bool(args.llm),
+            llm_intent_model=args.llm_model,
+            llm_intent_include_images=parse_bool(args.llm_images),
+            llm_intent_max_regions=args.llm_max_regions,
             orchestrator_enabled=parse_bool(args.orchestrator),
             orchestrator_mode=args.orchestrator_mode,
             project_root=args.project_root,

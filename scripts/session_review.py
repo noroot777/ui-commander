@@ -73,6 +73,7 @@ def main() -> int:
         "session_id": session_dir.name,
         "session_dir": str(session_dir),
         "review": summary.get("review", {}),
+        "llm_intent": summary.get("llm_intent", {}),
         "review_html": summary.get("artifacts", {}).get("review_html"),
         "agent_review_html": summary.get("artifacts", {}).get("agent_review_html"),
         "live_review": summary.get("live_review", {}),
