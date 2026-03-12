@@ -207,13 +207,21 @@ if (!window.__screenCommanderInjected) {
 
     if (!payload.sticky) {
       cueTimer = window.setTimeout(() => {
-        if (!cueElement) {
-          return;
-        }
-        cueElement.style.opacity = "0";
-        cueElement.style.transform = "translateX(-50%) translateY(-6px)";
+        hideCue();
       }, payload.durationMs);
     }
+  }
+
+  function hideCue() {
+    if (cueTimer) {
+      clearTimeout(cueTimer);
+      cueTimer = null;
+    }
+    if (!cueElement) {
+      return;
+    }
+    cueElement.style.opacity = "0";
+    cueElement.style.transform = "translateX(-50%) translateY(-6px)";
   }
 
   window.addEventListener("pagehide", resetInjectionFlag);
@@ -341,6 +349,11 @@ if (!window.__screenCommanderInjected) {
     }
     if (message.type === "screen-commander-cue") {
       showCue(message.payload || message.text || "Screen Commander ready", message.tone || "info");
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === "screen-commander-hide-cue") {
+      hideCue();
       sendResponse({ ok: true });
       return true;
     }

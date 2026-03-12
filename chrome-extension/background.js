@@ -406,6 +406,16 @@ async function showPageCue(tabId, textOrPayload, tone = "info") {
   }
 }
 
+async function hidePageCue(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: "screen-commander-hide-cue"
+    });
+  } catch (_error) {
+    // Ignore cue failures if the page is navigating or content script is not available.
+  }
+}
+
 async function setContentCaptureState(tabId, enabled) {
   try {
     await chrome.tabs.sendMessage(tabId, {
@@ -575,21 +585,25 @@ async function stopSession() {
     session_id: sessionId
   });
   if (stoppingTabId !== null) {
-    await showPageCue(
-      stoppingTabId,
-      response?.orchestrator?.triggered
-        ? {
-            title: copy.completeTitle,
-            body: copy.completeWithAgentBody,
-            hint: copy.completeWithAgentHint
-          }
-        : {
-            title: copy.completeTitle,
-            body: copy.completeBody,
-            hint: copy.completeHint
-          },
-      "success"
-    );
+    if (response?.review_opened) {
+      await hidePageCue(stoppingTabId);
+    } else {
+      await showPageCue(
+        stoppingTabId,
+        response?.orchestrator?.triggered
+          ? {
+              title: copy.completeTitle,
+              body: copy.completeWithAgentBody,
+              hint: copy.completeWithAgentHint
+            }
+          : {
+              title: copy.completeTitle,
+              body: copy.completeBody,
+              hint: copy.completeHint
+            },
+        "success"
+      );
+    }
   }
   await closeRecorderWindow();
   sessionId = null;
