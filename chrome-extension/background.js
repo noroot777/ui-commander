@@ -14,6 +14,26 @@ const recorderPending = new Map();
 let keyframeTimer = null;
 let keyframeCaptureInFlight = false;
 const KEYFRAME_INTERVAL_MS = 900;
+let platformOs = null;
+
+function platformInfo() {
+  return new Promise((resolve) => {
+    chrome.runtime.getPlatformInfo((info) => {
+      resolve(info || { os: "unknown" });
+    });
+  });
+}
+
+async function shortcutLabels() {
+  if (!platformOs) {
+    const info = await platformInfo();
+    platformOs = info.os || "unknown";
+  }
+  if (platformOs === "mac") {
+    return { start: "Option+S", stop: "Option+E" };
+  }
+  return { start: "Alt+S", stop: "Alt+E" };
+}
 
 function setIdleBadge() {
   chrome.action.setBadgeText({ text: "" });
@@ -304,6 +324,7 @@ async function detachDebugger() {
 }
 
 async function startSession(tab, microphone = null) {
+  const shortcuts = await shortcutLabels();
   await ensureRecorderWindow();
   const response = await sendNative("start_session", {
     url: tab.url,
@@ -368,13 +389,13 @@ async function startSession(tab, microphone = null) {
         ? {
             title: "Recording started",
             body: "Start speaking now, then reproduce the bug in this page.",
-            hint: "Stop with Option+E",
+            hint: `Stop with ${shortcuts.stop}`,
             durationMs: 5200
           }
         : {
             title: "Recording started",
             body: "Microphone is unavailable, so this run will capture visuals only.",
-            hint: "Stop with Option+E",
+            hint: `Stop with ${shortcuts.stop}`,
             durationMs: 5600,
             tone: "warning"
           },
@@ -592,6 +613,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.commands.onCommand.addListener((command) => {
   if (command === "start-recording") {
     void (async () => {
+      const shortcuts = await shortcutLabels();
       if (recording || finalizing) {
         if (activeTabId !== null) {
           await showPageCue(
@@ -617,7 +639,7 @@ chrome.commands.onCommand.addListener((command) => {
       if (tab?.id) {
         await showPageCue(tab.id, {
           title: "Unable to start recording",
-          body: error.message || "Screen Commander could not start this recording."
+          body: error.message || `Screen Commander could not start this recording with ${shortcuts.start}.`
         }, "warning");
       }
     });
@@ -625,6 +647,7 @@ chrome.commands.onCommand.addListener((command) => {
   }
   if (command === "stop-recording") {
     void (async () => {
+      const shortcuts = await shortcutLabels();
       if (finalizing) {
         const tab = await currentTab().catch(() => null);
         if (tab?.id) {
@@ -640,7 +663,7 @@ chrome.commands.onCommand.addListener((command) => {
         if (tab?.id) {
           await showPageCue(tab.id, {
             title: "Not currently recording",
-            body: "Press Option+S first to start a new Screen Commander session."
+            body: `Press ${shortcuts.start} first to start a new Screen Commander session.`
           }, "info");
         }
         return;
@@ -651,7 +674,7 @@ chrome.commands.onCommand.addListener((command) => {
       if (tab?.id) {
         await showPageCue(tab.id, {
           title: "Unable to stop recording",
-          body: error.message || "Screen Commander could not stop this recording cleanly."
+          body: error.message || `Screen Commander could not stop this recording cleanly with ${shortcuts.stop}.`
         }, "warning");
       }
     });
@@ -662,9 +685,10 @@ chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) {
     return;
   }
+  const shortcuts = await shortcutLabels();
   await showPageCue(tab.id, {
     title: "Screen Commander shortcuts",
-    body: "Press Option+S to start recording on this page.\nPress Option+E to stop and save the session.",
+    body: `Press ${shortcuts.start} to start recording on this page.\nPress ${shortcuts.stop} to stop and save the session.`,
     hint: "After the start cue appears, begin speaking.",
     durationMs: 7000
   }, "info");

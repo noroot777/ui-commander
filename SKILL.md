@@ -14,7 +14,7 @@ This skill is stateful. On every trigger, check local readiness first and adapt 
 
 1. Run `/opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/status.py`.
 2. If state is `not_installed`, run local setup yourself and guide the user to load the unpacked extension in Chrome.
-3. If state is `extension_installed`, run local setup yourself so the native host is ready, then tell the user the bridge is ready.
+3. If state is `extension_installed`, run local setup yourself so the native host is ready, but do it quietly. Do not reopen Chrome Extensions or repeat plugin-install instructions unless the extension is actually missing.
 4. If state is `ready_to_record`, inspect dependency status and saved transcription preferences.
 5. Default the target project to the current workspace. Only override it when the user explicitly wants to send the session to a different repo.
 6. If no preferred narration language has been saved yet, ask the user what language they usually narrate in and persist it before recording.
@@ -53,9 +53,9 @@ Override the default target project and fallback orchestrator mode with:
 Interpret states like this:
 
 - `not_installed`
-  The extension is not visible in Chrome profiles yet. Run `/opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/setup.py` yourself, then tell the user to open `chrome://extensions`, enable Developer mode, click `Load unpacked`, and select `<skill-dir>/chrome-extension`.
+  The extension is not visible in Chrome profiles yet. Run `/opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/setup.py --open` yourself, then tell the user to open `chrome://extensions`, enable Developer mode, click `Load unpacked`, and select `<skill-dir>/chrome-extension`.
 - `extension_installed`
-  The extension is installed, but the native host is not ready. Run `/opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/setup.py` yourself. Then tell the user to try the extension again.
+  The extension is installed, but the native host is not ready. Run `/opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/setup.py --no-open` yourself. Do not repeat install instructions; just tell the user the bridge has been refreshed and they can record again.
 - `ready_to_record`
   The local bridge is ready. Continue directly to recording.
 
@@ -81,8 +81,10 @@ Also inspect `preferences.orchestrator`:
 When setup is needed, run:
 
 ```bash
-/opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/setup.py
+/opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/setup.py --no-open
 ```
+
+Only use `--open` for a genuine first-time install or when the user explicitly asks to reopen the Chrome setup flow.
 
 This script checks dependencies, registers the Chrome Native Messaging host, opens `chrome://extensions`, and opens the unpacked extension directory in Finder.
 

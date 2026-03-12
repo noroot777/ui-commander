@@ -16,6 +16,7 @@ from preferences_store import read_preferences
 
 CHROME_ROOT = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
 PYTHON_BIN = "/opt/homebrew/opt/python@3.11/libexec/bin/python"
+RUNTIME_STATE_PATH = project_root() / ".screen-commander" / "runtime-state.json"
 COMMON_COMMAND_PATHS = {
     "ffmpeg": [
         "/opt/homebrew/bin/ffmpeg",
@@ -64,6 +65,16 @@ def extension_installed(expected_extension_id: str) -> tuple[bool, str | None]:
     return False, None
 
 
+def runtime_extension_confirmation() -> dict[str, object]:
+    if not RUNTIME_STATE_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(RUNTIME_STATE_PATH.read_text())
+    except Exception:  # noqa: BLE001
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def state_for(extension_ok: bool, host_ok: bool) -> str:
     if not extension_ok:
         return "not_installed"
@@ -102,6 +113,10 @@ def main() -> int:
     expected_extension_id = extension_id()
     extension_ok, profile = extension_installed(expected_extension_id)
     host_ok = host_ready(expected_extension_id)
+    runtime_state = runtime_extension_confirmation()
+    if not extension_ok and host_ok and runtime_state.get("extension_confirmed") is True:
+        extension_ok = True
+        profile = "runtime-confirmed"
     preferences = read_preferences()
     preferred_language = preferences.get("transcription", {}).get("preferred_language")
 
@@ -113,6 +128,7 @@ def main() -> int:
         "extension_installed": extension_ok,
         "native_host_ready": host_ok,
         "chrome_profile": profile,
+        "runtime_state": runtime_state,
         "dependencies": dependency_status(),
         "preferences": preferences,
         "needs_language_setup": not bool(preferred_language),

@@ -37,6 +37,7 @@ ROOT = PROJECT_ROOT / ".screen-commander" / "sessions"
 LOG_PATH = PROJECT_ROOT / ".screen-commander" / "native-host.log"
 LANGUAGE_PROFILE_PATH = PROJECT_ROOT / ".screen-commander" / "language-profile.json"
 SERVER_INFO_PATH = PROJECT_ROOT / ".screen-commander" / "session-server.json"
+RUNTIME_STATE_PATH = PROJECT_ROOT / ".screen-commander" / "runtime-state.json"
 COMMON_COMMAND_PATHS = {
     "ffmpeg": [
         "/opt/homebrew/bin/ffmpeg",
@@ -93,6 +94,38 @@ def write_language_profile(payload: dict) -> None:
         json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
+
+
+def read_runtime_state() -> dict:
+    if not RUNTIME_STATE_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(RUNTIME_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_runtime_state(payload: dict) -> None:
+    RUNTIME_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RUNTIME_STATE_PATH.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def mark_extension_confirmed(session_id: str, url: str | None = None, title: str | None = None) -> None:
+    state = read_runtime_state()
+    state.update(
+        {
+            "extension_confirmed": True,
+            "last_confirmed_session_id": session_id,
+            "last_confirmed_at": utc_now(),
+            "last_confirmed_url": url,
+            "last_confirmed_title": title,
+        }
+    )
+    write_runtime_state(state)
 
 
 def macos_preferred_languages() -> list[str]:
@@ -564,6 +597,7 @@ def start_session(payload: dict) -> dict:
         "title": payload.get("title"),
     }
     write_json(path / "session.json", meta)
+    mark_extension_confirmed(session_id, payload.get("url"), payload.get("title"))
     audio = start_native_audio_capture(session_id)
     if audio.get("ok"):
         append_jsonl(
