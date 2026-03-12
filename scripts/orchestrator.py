@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Run an automatic agent task for a finalized screen-commander session."""
 
 from __future__ import annotations

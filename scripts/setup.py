@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """One-shot local setup for screen-commander."""
 
 from __future__ import annotations
@@ -6,15 +6,17 @@ from __future__ import annotations
 import argparse
 import platform
 import subprocess
+import sys
 from pathlib import Path
 
 from status import extension_installed
 from install_native_host import extension_id
+from python_runtime import resolve_python_executable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 EXTENSION_DIR = PROJECT_ROOT / "chrome-extension"
-PYTHON_BIN = Path("/opt/homebrew/opt/python@3.11/libexec/bin/python")
+PYTHON_BIN = resolve_python_executable(sys.executable)
 
 
 def ensure_executable(path: Path) -> None:
@@ -23,7 +25,7 @@ def ensure_executable(path: Path) -> None:
 
 def run(script_name: str) -> int:
     script_path = PROJECT_ROOT / "scripts" / script_name
-    result = subprocess.run([str(PYTHON_BIN), str(script_path)], cwd=PROJECT_ROOT)
+    result = subprocess.run([PYTHON_BIN, str(script_path)], cwd=PROJECT_ROOT)
     return result.returncode
 
 

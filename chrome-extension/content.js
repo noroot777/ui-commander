@@ -11,6 +11,7 @@ if (!window.__screenCommanderInjected) {
   let cueTitleElement = null;
   let cueBodyElement = null;
   let cueHintElement = null;
+  let cueSequence = 0;
 
   function runtimeAvailable() {
     try {
@@ -127,7 +128,8 @@ if (!window.__screenCommanderInjected) {
       hint: payload?.hint || "",
       tone: resolvedTone,
       durationMs: payload?.durationMs ?? (resolvedTone === "success" ? 3200 : 4200),
-      sticky: Boolean(payload?.sticky)
+      sticky: Boolean(payload?.sticky),
+      maxStickyMs: payload?.maxStickyMs ?? 15000
     };
   }
 
@@ -136,6 +138,8 @@ if (!window.__screenCommanderInjected) {
       return;
     }
     const payload = normalizeCuePayload(message, tone);
+    cueSequence += 1;
+    const currentCueSequence = cueSequence;
     if (cueTimer) {
       clearTimeout(cueTimer);
       cueTimer = null;
@@ -205,10 +209,19 @@ if (!window.__screenCommanderInjected) {
     cueElement.style.transform = "translateX(-50%) translateY(0)";
     cueElement.style.transition = "opacity 180ms ease, transform 180ms ease";
 
-    if (!payload.sticky) {
+    const scheduleHide = (delayMs) => {
       cueTimer = window.setTimeout(() => {
+        if (currentCueSequence !== cueSequence) {
+          return;
+        }
         hideCue();
-      }, payload.durationMs);
+      }, Math.max(0, delayMs));
+    };
+
+    if (!payload.sticky) {
+      scheduleHide(payload.durationMs);
+    } else if (payload.maxStickyMs > 0) {
+      scheduleHide(payload.maxStickyMs);
     }
   }
 
@@ -222,6 +235,20 @@ if (!window.__screenCommanderInjected) {
     }
     cueElement.style.opacity = "0";
     cueElement.style.transform = "translateX(-50%) translateY(-6px)";
+  }
+
+  function removeCue() {
+    if (cueTimer) {
+      clearTimeout(cueTimer);
+      cueTimer = null;
+    }
+    if (cueElement?.parentNode) {
+      cueElement.parentNode.removeChild(cueElement);
+    }
+    cueElement = null;
+    cueTitleElement = null;
+    cueBodyElement = null;
+    cueHintElement = null;
   }
 
   window.addEventListener("pagehide", resetInjectionFlag);
@@ -345,6 +372,21 @@ if (!window.__screenCommanderInjected) {
     if (message.type === "screen-commander-set-capture") {
       captureEnabled = message.enabled !== false;
       sendResponse({ ok: true, captureEnabled });
+      return true;
+    }
+    if (message.type === "screen-commander-command-stop") {
+      chrome.runtime.sendMessage({ type: "command-stop" }, (response) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        sendResponse(response || { ok: true });
+      });
+      return true;
+    }
+    if (message.type === "screen-commander-remove-cue") {
+      removeCue();
+      sendResponse({ ok: true });
       return true;
     }
     if (message.type === "screen-commander-cue") {

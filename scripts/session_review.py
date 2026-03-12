@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Print a compact review payload for a screen-commander session."""
 
 from __future__ import annotations

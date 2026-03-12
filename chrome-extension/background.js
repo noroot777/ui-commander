@@ -1,4 +1,4 @@
-const HOST_NAME = "dev.fjh.screen_commander";
+const HOST_NAME = "dev.codex.screen_commander";
 
 let nativePort = null;
 let sessionId = null;
@@ -7,15 +7,15 @@ let activeTabId = null;
 let attachedDebugger = null;
 let nativeQueue = Promise.resolve();
 let finalizing = false;
-let recorderPort = null;
-let recorderWindowId = null;
-let recorderCommandId = 0;
-const recorderPending = new Map();
 let keyframeTimer = null;
 let keyframeCaptureInFlight = false;
 const KEYFRAME_INTERVAL_MS = 900;
+const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 let platformOs = null;
 let preferredLanguage = null;
+let currentNativeRequest = null;
+let offscreenCreatePromise = null;
+const debuggerApi = chrome.debugger || null;
 
 const I18N = {
   en: {
@@ -164,7 +164,14 @@ function ensurePort() {
   }
   nativePort = chrome.runtime.connectNative(HOST_NAME);
   nativePort.onDisconnect.addListener(() => {
+    const disconnectMessage = chrome.runtime.lastError?.message || "";
+    const pendingRequest = currentNativeRequest;
     nativePort = null;
+    currentNativeRequest = null;
+    if (pendingRequest) {
+      pendingRequest.cleanup();
+      pendingRequest.reject(new Error(disconnectMessage || "Native messaging host disconnected"));
+    }
   });
   return nativePort;
 }
@@ -172,8 +179,21 @@ function ensurePort() {
 function sendNative(command, payload = {}) {
   nativeQueue = nativeQueue.catch(() => null).then(() => new Promise((resolve, reject) => {
     const port = ensurePort();
-    const handleMessage = (message) => {
+    let settled = false;
+
+    const cleanup = () => {
       port.onMessage.removeListener(handleMessage);
+      if (currentNativeRequest?.cleanup === cleanup) {
+        currentNativeRequest = null;
+      }
+    };
+
+    const handleMessage = (message) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
       if (!message.ok) {
         reject(new Error(message.error || "native host error"));
         return;
@@ -181,70 +201,80 @@ function sendNative(command, payload = {}) {
       resolve(message);
     };
 
+    currentNativeRequest = {
+      command,
+      cleanup,
+      reject,
+    };
     port.onMessage.addListener(handleMessage);
-    port.postMessage({ command, payload });
+    try {
+      port.postMessage({ command, payload });
+    } catch (error) {
+      if (!settled) {
+        settled = true;
+        cleanup();
+      }
+      reject(error);
+    }
   }));
 
   return nativeQueue;
 }
 
-async function ensureRecorderWindow() {
-  if (recorderPort) {
+async function hasOffscreenDocument() {
+  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
+  if (typeof chrome.runtime.getContexts === "function") {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [offscreenUrl]
+    });
+    return contexts.length > 0;
+  }
+
+  const matchedClients = await clients.matchAll();
+  return matchedClients.some((client) => client.url === offscreenUrl);
+}
+
+async function ensureOffscreenDocument() {
+  if (await hasOffscreenDocument()) {
     return;
   }
 
-  const window = await chrome.windows.create({
-    url: chrome.runtime.getURL("recorder.html"),
-    type: "popup",
-    width: 320,
-    height: 180,
-    focused: false
-  });
-  recorderWindowId = window.id ?? null;
-
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error("Recorder window did not connect"));
-    }, 5000);
-
-    const checkReady = () => {
-      if (recorderPort) {
-        clearTimeout(timeout);
-        resolve();
-      } else {
-        setTimeout(checkReady, 100);
-      }
-    };
-    checkReady();
-  });
-}
-
-async function closeRecorderWindow() {
-  if (recorderWindowId !== null) {
-    try {
-      await chrome.windows.remove(recorderWindowId);
-    } catch (_error) {
-      // Ignore remove failures during shutdown.
-    }
-  }
-  recorderWindowId = null;
-}
-
-function sendRecorderCommand(type, payload = {}) {
-  if (!recorderPort) {
-    return Promise.reject(new Error("Recorder is not connected"));
-  }
-
-  recorderCommandId += 1;
-  const commandId = `recorder-${recorderCommandId}`;
-  return new Promise((resolve, reject) => {
-    recorderPending.set(commandId, { resolve, reject });
-    recorderPort.postMessage({
-      type,
-      commandId,
-      ...payload
+  if (!offscreenCreatePromise) {
+    offscreenCreatePromise = chrome.offscreen.createDocument({
+      url: OFFSCREEN_DOCUMENT_PATH,
+      reasons: ["USER_MEDIA"],
+      justification: "Record microphone audio while Screen Commander captures a session."
+    }).finally(() => {
+      offscreenCreatePromise = null;
     });
+  }
+
+  await offscreenCreatePromise;
+}
+
+async function closeOffscreenDocument() {
+  if (!(await hasOffscreenDocument())) {
+    return;
+  }
+  try {
+    await chrome.offscreen.closeDocument();
+  } catch (_error) {
+    // Ignore close failures during shutdown.
+  }
+}
+
+async function sendOffscreenCommand(type, payload = {}) {
+  await ensureOffscreenDocument();
+  const response = await chrome.runtime.sendMessage({
+    target: "offscreen",
+    type,
+    ...payload
   });
+  if (!response?.ok) {
+    throw new Error(response?.error || "Offscreen command failed");
+  }
+  return response;
 }
 
 async function appendInternalEvent(type, value = null) {
@@ -364,12 +394,16 @@ function domTargetFromMessage(target) {
 }
 
 async function attachDebugger(tabId) {
+  if (!debuggerApi?.attach || !debuggerApi?.sendCommand) {
+    return false;
+  }
   const debuggee = { tabId };
-  await chrome.debugger.attach(debuggee, "1.3");
+  await debuggerApi.attach(debuggee, "1.3");
   attachedDebugger = debuggee;
-  await chrome.debugger.sendCommand(debuggee, "Runtime.enable");
-  await chrome.debugger.sendCommand(debuggee, "Network.enable");
-  await chrome.debugger.sendCommand(debuggee, "Log.enable");
+  await debuggerApi.sendCommand(debuggee, "Runtime.enable");
+  await debuggerApi.sendCommand(debuggee, "Network.enable");
+  await debuggerApi.sendCommand(debuggee, "Log.enable");
+  return true;
 }
 
 async function ensureContentScript(tabId) {
@@ -406,13 +440,27 @@ async function showPageCue(tabId, textOrPayload, tone = "info") {
   }
 }
 
-async function hidePageCue(tabId) {
+async function removePageCue(tabId) {
   try {
-    await chrome.tabs.sendMessage(tabId, {
-      type: "screen-commander-hide-cue"
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: false },
+      func: () => {
+        const cue = document.querySelector("[data-screen-commander-cue='true']");
+        if (cue instanceof HTMLElement) {
+          cue.remove();
+        }
+      }
     });
+    return true;
   } catch (_error) {
-    // Ignore cue failures if the page is navigating or content script is not available.
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        type: "screen-commander-remove-cue"
+      });
+      return true;
+    } catch (_nestedError) {
+      return false;
+    }
   }
 }
 
@@ -428,11 +476,11 @@ async function setContentCaptureState(tabId, enabled) {
 }
 
 async function detachDebugger() {
-  if (!attachedDebugger) {
+  if (!attachedDebugger || !debuggerApi?.detach) {
     return;
   }
   try {
-    await chrome.debugger.detach(attachedDebugger);
+    await debuggerApi.detach(attachedDebugger);
   } catch (_error) {
     // Ignore detach failures during shutdown.
   }
@@ -442,7 +490,7 @@ async function detachDebugger() {
 async function startSession(tab, microphone = null) {
   const shortcuts = await shortcutLabels();
   const copy = await localizedCopy();
-  await ensureRecorderWindow();
+  await ensureOffscreenDocument();
   const response = await sendNative("start_session", {
     url: tab.url,
     title: tab.title
@@ -480,10 +528,13 @@ async function startSession(tab, microphone = null) {
       screenshot: null
     }
   });
-  await attachDebugger(tab.id);
+  const debuggerAttached = await attachDebugger(tab.id);
+  if (!debuggerAttached) {
+    await appendInternalEvent("debugger_status", "unavailable");
+  }
   let audioEnabled = false;
   try {
-    const audioStart = await sendRecorderCommand("start-recording", {
+    const audioStart = await sendOffscreenCommand("start-audio-recording", {
       microphone
     });
     audioEnabled = true;
@@ -507,13 +558,13 @@ async function startSession(tab, microphone = null) {
             title: copy.recordingStartedTitle,
             body: copy.recordingStartedBody,
             hint: copy.stopWith(shortcuts.stop),
-            durationMs: 5200
+            durationMs: 1200
           }
         : {
             title: copy.recordingStartedTitle,
             body: copy.recordingStartedNoMicBody,
             hint: copy.stopWith(shortcuts.stop),
-            durationMs: 5600,
+            durationMs: 1200,
             tone: "warning"
           },
       audioEnabled || response.native_audio?.enabled ? "success" : "warning"
@@ -549,7 +600,8 @@ async function stopSession() {
       title: copy.savingTitle,
       body: copy.savingBody,
       hint: copy.savingHint,
-      sticky: true
+      sticky: true,
+      maxStickyMs: 15000
     }, "info");
   }
 
@@ -557,7 +609,7 @@ async function stopSession() {
   await persistKeyframe("stop");
 
   try {
-    const audioResult = await sendRecorderCommand("stop-recording");
+    const audioResult = await sendOffscreenCommand("stop-audio-recording");
     if (audioResult?.audio?.data) {
       await sendNative("write_artifact", {
         session_id: sessionId,
@@ -586,7 +638,19 @@ async function stopSession() {
   });
   if (stoppingTabId !== null) {
     if (response?.review_opened) {
-      await hidePageCue(stoppingTabId);
+      const hidden = await removePageCue(stoppingTabId);
+      if (!hidden) {
+        await showPageCue(
+          stoppingTabId,
+          {
+            title: copy.completeTitle,
+            body: copy.completeWithAgentBody,
+            hint: copy.completeWithAgentHint,
+            durationMs: 900
+          },
+          "success"
+        );
+      }
     } else {
       await showPageCue(
         stoppingTabId,
@@ -605,12 +669,63 @@ async function stopSession() {
       );
     }
   }
-  await closeRecorderWindow();
+  await closeOffscreenDocument();
   sessionId = null;
   activeTabId = null;
   finalizing = false;
   setIdleBadge();
   return response;
+}
+
+async function handleStartRequest(microphone = null) {
+  if (recording || finalizing) {
+    const copy = await localizedCopy();
+    if (activeTabId !== null) {
+      await showPageCue(
+        activeTabId,
+        finalizing
+          ? {
+              title: copy.stillSavingTitle,
+              body: copy.stillSavingBody
+            }
+          : {
+              title: copy.alreadyRecordingTitle,
+              body: copy.alreadyRecordingBody
+            },
+        "info"
+      );
+    }
+    return null;
+  }
+
+  const tab = await currentTab();
+  return startSession(tab, microphone);
+}
+
+async function handleStopRequest() {
+  const shortcuts = await shortcutLabels();
+  const copy = await localizedCopy();
+  if (finalizing) {
+    const tab = await currentTab().catch(() => null);
+    if (tab?.id) {
+      await showPageCue(tab.id, {
+        title: copy.stillSavingTitle,
+        body: copy.stillSavingShortBody
+      }, "info");
+    }
+    return null;
+  }
+  if (!recording) {
+    const tab = await currentTab().catch(() => null);
+    if (tab?.id) {
+      await showPageCue(tab.id, {
+        title: copy.notRecordingTitle,
+        body: copy.notRecordingBody(shortcuts.start)
+      }, "info");
+    }
+    return null;
+  }
+  return stopSession();
 }
 
 async function currentTab() {
@@ -624,91 +739,96 @@ async function currentTab() {
   return tab;
 }
 
-chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (!recording || !sessionId || source.tabId !== activeTabId) {
-    return;
-  }
-
-  if (method === "Runtime.consoleAPICalled") {
-    void sendNative("append_console", {
-      session_id: sessionId,
-      entry: {
-        time: Date.now(),
-        type: "console",
-        level: params.type,
-        text: (params.args || []).map((arg) => arg.value ?? arg.description ?? "").join(" "),
-        stackTrace: params.stackTrace || null
-      }
-    });
-    return;
-  }
-
-  if (method === "Runtime.exceptionThrown") {
-    void sendNative("append_console", {
-      session_id: sessionId,
-      entry: {
-        time: Date.now(),
-        type: "exception",
-        text: params.exceptionDetails?.text || "Runtime exception",
-        stackTrace: params.exceptionDetails?.stackTrace || null
-      }
-    });
-    return;
-  }
-
-  if (method === "Network.requestWillBeSent") {
-    void sendNative("append_network", {
-      session_id: sessionId,
-      entry: {
-        time: Date.now(),
-        type: "request",
-        requestId: params.requestId,
-        url: params.request?.url,
-        method: params.request?.method
-      }
-    });
-    return;
-  }
-
-  if (method === "Network.responseReceived") {
-    void sendNative("append_network", {
-      session_id: sessionId,
-      entry: {
-        time: Date.now(),
-        type: "response",
-        requestId: params.requestId,
-        url: params.response?.url,
-        status: params.response?.status
-      }
-    });
-    return;
-  }
-
-  if (method === "Network.loadingFailed") {
-    void sendNative("append_network", {
-      session_id: sessionId,
-      entry: {
-        time: Date.now(),
-        type: "loadingFailed",
-        requestId: params.requestId,
-        errorText: params.errorText,
-        canceled: params.canceled
-      }
-    });
-  }
-});
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  (async () => {
-    if (message.type === "popup-start") {
-      const tab = await currentTab();
-      const result = await startSession(tab, message.microphone || null);
-      sendResponse(result);
+if (debuggerApi?.onEvent) {
+  debuggerApi.onEvent.addListener((source, method, params) => {
+    if (!recording || !sessionId || source.tabId !== activeTabId) {
       return;
     }
 
-    if (message.type === "popup-stop") {
-      const result = await stopSession();
+    if (method === "Runtime.consoleAPICalled") {
+      void sendNative("append_console", {
+        session_id: sessionId,
+        entry: {
+          time: Date.now(),
+          type: "console",
+          level: params.type,
+          text: (params.args || []).map((arg) => arg.value ?? arg.description ?? "").join(" "),
+          stackTrace: params.stackTrace || null
+        }
+      });
+      return;
+    }
+
+    if (method === "Runtime.exceptionThrown") {
+      void sendNative("append_console", {
+        session_id: sessionId,
+        entry: {
+          time: Date.now(),
+          type: "exception",
+          text: params.exceptionDetails?.text || "Runtime exception",
+          stackTrace: params.exceptionDetails?.stackTrace || null
+        }
+      });
+      return;
+    }
+
+    if (method === "Network.requestWillBeSent") {
+      void sendNative("append_network", {
+        session_id: sessionId,
+        entry: {
+          time: Date.now(),
+          type: "request",
+          requestId: params.requestId,
+          url: params.request?.url,
+          method: params.request?.method
+        }
+      });
+      return;
+    }
+
+    if (method === "Network.responseReceived") {
+      void sendNative("append_network", {
+        session_id: sessionId,
+        entry: {
+          time: Date.now(),
+          type: "response",
+          requestId: params.requestId,
+          url: params.response?.url,
+          status: params.response?.status
+        }
+      });
+      return;
+    }
+
+    if (method === "Network.loadingFailed") {
+      void sendNative("append_network", {
+        session_id: sessionId,
+        entry: {
+          time: Date.now(),
+          type: "loadingFailed",
+          requestId: params.requestId,
+          errorText: params.errorText,
+          canceled: params.canceled
+        }
+      });
+    }
+  });
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.target === "offscreen") {
+    return false;
+  }
+
+  (async () => {
+    if (message.type === "popup-start") {
+      const result = await handleStartRequest(message.microphone || null);
+      sendResponse(result || { ok: true });
+      return;
+    }
+
+    if (message.type === "popup-stop" || message.type === "command-stop") {
+      const result = await handleStopRequest();
       sendResponse(result || { ok: true });
       return;
     }
@@ -734,30 +854,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === "start-recording") {
-    void (async () => {
+    void handleStartRequest(null).catch(async (error) => {
       const shortcuts = await shortcutLabels();
       const copy = await localizedCopy();
-      if (recording || finalizing) {
-        if (activeTabId !== null) {
-          await showPageCue(
-            activeTabId,
-            finalizing
-              ? {
-                  title: copy.stillSavingTitle,
-                  body: copy.stillSavingBody
-                }
-              : {
-                  title: copy.alreadyRecordingTitle,
-                  body: copy.alreadyRecordingBody
-                },
-            "info"
-          );
-        }
-        return;
-      }
-      const tab = await currentTab();
-      await startSession(tab, null);
-    })().catch(async (error) => {
       const tab = activeTabId ? { id: activeTabId } : await currentTab().catch(() => null);
       if (tab?.id) {
         await showPageCue(tab.id, {
@@ -770,30 +869,20 @@ chrome.commands.onCommand.addListener((command) => {
   }
   if (command === "stop-recording") {
     void (async () => {
+      if (recording && activeTabId !== null) {
+        try {
+          await chrome.tabs.sendMessage(activeTabId, {
+            type: "screen-commander-command-stop"
+          });
+          return;
+        } catch (_error) {
+          // Fall back to the direct path if the tab is navigating or the content script is unavailable.
+        }
+      }
+      await handleStopRequest();
+    })().catch(async (error) => {
       const shortcuts = await shortcutLabels();
       const copy = await localizedCopy();
-      if (finalizing) {
-        const tab = await currentTab().catch(() => null);
-        if (tab?.id) {
-          await showPageCue(tab.id, {
-            title: copy.stillSavingTitle,
-            body: copy.stillSavingShortBody
-          }, "info");
-        }
-        return;
-      }
-      if (!recording) {
-        const tab = await currentTab().catch(() => null);
-        if (tab?.id) {
-          await showPageCue(tab.id, {
-            title: copy.notRecordingTitle,
-            body: copy.notRecordingBody(shortcuts.start)
-          }, "info");
-        }
-        return;
-      }
-      await stopSession();
-    })().catch(async (error) => {
       const tab = activeTabId ? { id: activeTabId } : await currentTab().catch(() => null);
       if (tab?.id) {
         await showPageCue(tab.id, {
@@ -822,35 +911,11 @@ chrome.action.onClicked.addListener(async (tab) => {
 setIdleBadge();
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "screen-commander-recorder") {
+  if (port.name !== "screen-commander-offscreen-keepalive") {
     return;
   }
 
-  recorderPort = port;
   port.onDisconnect.addListener(() => {
-    recorderPort = null;
-    for (const pending of recorderPending.values()) {
-      pending.reject(new Error("Recorder disconnected"));
-    }
-    recorderPending.clear();
-  });
-
-  port.onMessage.addListener((message) => {
-    if (message.type === "recorder-ready") {
-      return;
-    }
-    if (message.type !== "command-result" || !message.commandId) {
-      return;
-    }
-    const pending = recorderPending.get(message.commandId);
-    if (!pending) {
-      return;
-    }
-    recorderPending.delete(message.commandId);
-    if (message.ok) {
-      pending.resolve(message.result);
-    } else {
-      pending.reject(new Error(message.error || "Recorder command failed"));
-    }
+    // No-op. The open port keeps the service worker alive while the offscreen recorder exists.
   });
 });

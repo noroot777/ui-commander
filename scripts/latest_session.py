@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Print the latest screen-commander session paths and review artifacts."""
 
 from __future__ import annotations

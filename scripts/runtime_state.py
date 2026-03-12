@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Shared runtime state helpers for screen-commander."""
 
 from __future__ import annotations

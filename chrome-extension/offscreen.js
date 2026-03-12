@@ -4,6 +4,7 @@ let chunks = [];
 let totalBytes = 0;
 let recorderMimeType = "";
 let lastRecorderError = null;
+const keepAlivePort = chrome.runtime.connect({ name: "screen-commander-offscreen-keepalive" });
 
 function pickMimeType() {
   const candidates = [
@@ -158,11 +159,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse(await stopAudioRecording());
       return;
     }
-
     sendResponse({ ok: false, error: "unknown offscreen command" });
   })().catch((error) => {
     sendResponse({ ok: false, error: error.message });
   });
 
   return true;
+});
+
+keepAlivePort.onDisconnect.addListener(() => {
+  // The background service worker may restart and the offscreen document will reconnect on reload.
 });

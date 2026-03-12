@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Wait for the next finalized screen-commander session."""
 
 from __future__ import annotations

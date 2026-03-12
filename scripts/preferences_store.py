@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Persistent user preferences for screen-commander."""
 
 from __future__ import annotations
@@ -67,7 +67,6 @@ def default_preferences() -> dict:
         "transcription": {
             "model": DEFAULT_TRANSCRIPTION_MODEL,
             "preferred_language": None,
-            "vad_enabled": True,
         },
         "orchestrator": {
             "enabled": True,
@@ -92,12 +91,9 @@ def read_preferences() -> dict:
             if isinstance(transcription, dict):
                 model = normalize_model_name(transcription.get("model"))
                 language = normalize_language_tag(transcription.get("preferred_language"))
-                vad_enabled = transcription.get("vad_enabled")
                 if model:
                     payload["transcription"]["model"] = model
                 payload["transcription"]["preferred_language"] = language
-                if isinstance(vad_enabled, bool):
-                    payload["transcription"]["vad_enabled"] = vad_enabled
             orchestrator = stored.get("orchestrator", {})
             if isinstance(orchestrator, dict):
                 enabled = orchestrator.get("enabled")
@@ -127,12 +123,9 @@ def write_preferences(payload: dict) -> dict:
     if isinstance(transcription, dict):
         model = normalize_model_name(transcription.get("model"))
         language = normalize_language_tag(transcription.get("preferred_language"))
-        vad_enabled = transcription.get("vad_enabled")
         if model:
             merged["transcription"]["model"] = model
         merged["transcription"]["preferred_language"] = language
-        if isinstance(vad_enabled, bool):
-            merged["transcription"]["vad_enabled"] = vad_enabled
     if isinstance(orchestrator, dict):
         enabled = orchestrator.get("enabled")
         provider = orchestrator.get("provider")
@@ -161,7 +154,6 @@ def update_preferences(
     *,
     model: str | None = None,
     preferred_language: str | None = None,
-    vad_enabled: bool | None = None,
     orchestrator_enabled: bool | None = None,
     orchestrator_mode: str | None = None,
     project_root: str | None = None,
@@ -178,8 +170,6 @@ def update_preferences(
         if normalized_language is None:
             raise ValueError(f"unsupported language tag: {preferred_language}")
         payload["transcription"]["preferred_language"] = normalized_language
-    if vad_enabled is not None:
-        payload["transcription"]["vad_enabled"] = bool(vad_enabled)
     if orchestrator_enabled is not None:
         payload["orchestrator"]["enabled"] = bool(orchestrator_enabled)
     if orchestrator_mode is not None:

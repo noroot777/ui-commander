@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Serve a live localhost review page for screen-commander sessions."""
 
 from __future__ import annotations

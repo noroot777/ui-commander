@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Native messaging companion for screen-commander."""
 
 from __future__ import annotations
@@ -193,46 +193,8 @@ def build_language_candidates() -> tuple[list[str], dict[str, object]]:
     return candidates, evidence
 
 
-def prepare_audio_for_transcription(audio_path: Path) -> tuple[Path, dict[str, object]]:
-    preferences = read_preferences()
-    vad_enabled = bool(preferences.get("transcription", {}).get("vad_enabled", True))
-    metadata = {
-        "enabled": vad_enabled,
-        "source_audio": str(audio_path),
-        "prepared_audio": str(audio_path),
-        "used": False,
-    }
-    if not vad_enabled:
-        return audio_path, metadata
-
-    ffmpeg_path = find_command("ffmpeg")
-    if ffmpeg_path is None:
-        metadata["error"] = "ffmpeg not available"
-        return audio_path, metadata
-
-    prepared_path = audio_path.with_name(f"{audio_path.stem}.vad.wav")
-    command = [
-        ffmpeg_path,
-        "-y",
-        "-i",
-        str(audio_path),
-        "-af",
-        "silenceremove=start_periods=1:start_silence=0.2:start_threshold=-45dB:"
-        "stop_periods=-1:stop_silence=0.3:stop_threshold=-45dB",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        str(prepared_path),
-    ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    if result.returncode == 0 and prepared_path.exists() and prepared_path.stat().st_size > 0:
-        metadata["prepared_audio"] = str(prepared_path)
-        metadata["used"] = True
-        return prepared_path, metadata
-
-    metadata["error"] = (result.stderr or "").strip()[-240:]
-    return audio_path, metadata
+def prepare_audio_for_transcription(audio_path: Path) -> Path:
+    return audio_path
 
 
 def score_transcript_for_language(text: str, language: str | None) -> float:
@@ -256,7 +218,23 @@ def score_transcript_for_language(text: str, language: str | None) -> float:
     )
 
 
-def select_best_transcription_attempt(attempts: list[dict]) -> dict:
+def select_best_transcription_attempt(
+    attempts: list[dict],
+    preferred_language: str | None = None,
+) -> dict:
+    if preferred_language:
+        preferred_attempt = next(
+            (
+                attempt
+                for attempt in attempts
+                if attempt["requested_language"] == preferred_language
+                and (attempt.get("result", {}).get("text") or "").strip()
+            ),
+            None,
+        )
+        if preferred_attempt:
+            return preferred_attempt
+
     best = max(attempts, key=lambda attempt: attempt["score"])
     auto_attempt = next((attempt for attempt in attempts if attempt["requested_language"] is None), None)
     if auto_attempt and auto_attempt["score"] >= best["score"] + 8:
@@ -656,7 +634,6 @@ def append_log(payload: dict, name: str) -> dict:
     append_jsonl(path / f"{name}.jsonl", payload["entry"])
     return {"ok": True}
 
-
 def write_artifact(payload: dict) -> dict:
     session_id = payload["session_id"]
     log_line(f"write_artifact session_id={session_id} path={payload.get('path')!r}")
@@ -898,7 +875,7 @@ def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
     preferences = read_preferences()
     transcription_preferences = preferences.get("transcription", {})
     model_name = str(transcription_preferences.get("model") or "small")
-    prepared_audio_path, vad_metadata = prepare_audio_for_transcription(audio_path)
+    prepared_audio_path = prepare_audio_for_transcription(audio_path)
     model = whisper.load_model(model_name)
     candidate_languages, evidence = build_language_candidates()
     attempts: list[dict] = []
@@ -926,7 +903,10 @@ def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
             }
         )
 
-    best_attempt = select_best_transcription_attempt(attempts)
+    preferred_candidate = normalize_language_tag(
+        evidence.get("manual_preferred_language") or evidence.get("trusted_preferred_language")
+    )
+    best_attempt = select_best_transcription_attempt(attempts, preferred_language=preferred_candidate)
     result = best_attempt["result"]
     transcript = (result.get("text") or "").strip()
     segments = [
@@ -942,7 +922,6 @@ def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
     metadata = {
         "model": model_name,
         "audio_input": str(prepared_audio_path),
-        "vad": vad_metadata,
         "selected_language": selected_language,
         "detected_language": normalize_language_tag(result.get("language")),
         "selection_mode": "hinted" if best_attempt["requested_language"] else "auto",

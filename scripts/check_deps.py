@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Validate local dependencies for screen-commander."""
 
 from __future__ import annotations
@@ -9,9 +9,13 @@ import shutil
 import subprocess
 import sys
 
+from python_runtime import quoted_python_executable
+
+
+PYTHON_PIP_HINT = quoted_python_executable(sys.executable)
 
 OPTIONAL_MODULES = {
-    "whisper": "/opt/homebrew/opt/python@3.11/libexec/bin/python -m pip uninstall -y whisper && /opt/homebrew/opt/python@3.11/libexec/bin/python -m pip install openai-whisper",
+    "whisper": f"{PYTHON_PIP_HINT} -m pip uninstall -y whisper && {PYTHON_PIP_HINT} -m pip install openai-whisper",
 }
 
 OPTIONAL_COMMANDS = {

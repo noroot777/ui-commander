@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Report the local readiness state for screen-commander."""
 
 from __future__ import annotations
@@ -7,16 +7,19 @@ import importlib
 import importlib.util
 import json
 import os
+import shlex
 import shutil
+import sys
 from pathlib import Path
 
 from install_native_host import HOST_NAME, extension_id, manifest_dir, project_root
 from preferences_store import read_preferences
+from python_runtime import resolve_python_executable
 from state_paths import migrate_legacy_state, runtime_state_path
 
 
 CHROME_ROOT = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
-PYTHON_BIN = "/opt/homebrew/opt/python@3.11/libexec/bin/python"
+PYTHON_BIN = resolve_python_executable(sys.executable)
 RUNTIME_STATE_PATH = runtime_state_path()
 COMMON_COMMAND_PATHS = {
     "ffmpeg": [
@@ -86,7 +89,8 @@ def state_for(extension_ok: bool, host_ok: bool) -> str:
 
 def dependency_status() -> dict[str, object]:
     whisper_installed = False
-    whisper_hint = f"{PYTHON_BIN} -m pip uninstall -y whisper && {PYTHON_BIN} -m pip install openai-whisper"
+    quoted_python = shlex.quote(PYTHON_BIN)
+    whisper_hint = f"{quoted_python} -m pip uninstall -y whisper && {quoted_python} -m pip install openai-whisper"
     spec = importlib.util.find_spec("whisper")
     if spec is not None:
         try:

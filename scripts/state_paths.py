@@ -1,4 +1,4 @@
-#!/opt/homebrew/opt/python@3.11/libexec/bin/python
+#!/usr/bin/env python3
 """Shared state paths for screen-commander across local and global installs."""
 
 from __future__ import annotations
@@ -45,6 +45,10 @@ def server_info_path() -> Path:
 
 def native_host_log_path() -> Path:
     return STATE_ROOT / "native-host.log"
+
+
+def python_bin_path() -> Path:
+    return STATE_ROOT / "python-bin"
 
 
 def ensure_state_root() -> Path:
