@@ -12,10 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from preferences_store import read_preferences
+from runtime_state import read_runtime_state
+from state_paths import latest_session_dir as latest_shared_session_dir, locate_session_dir, migrate_legacy_state, sessions_dir
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SESSIONS_DIR = PROJECT_ROOT / ".screen-commander" / "sessions"
+SESSIONS_DIR = sessions_dir()
 CODEX_BIN = shutil.which("codex") or "/Applications/Codex.app/Contents/Resources/codex"
 
 
@@ -67,10 +69,11 @@ def codex_thread_info(events_path: Path) -> dict[str, str] | None:
 
 
 def latest_session_dir() -> Path:
-    candidates = [path for path in SESSIONS_DIR.iterdir() if path.is_dir()]
-    if not candidates:
+    migrate_legacy_state()
+    latest = latest_shared_session_dir()
+    if latest is None:
         raise FileNotFoundError("No sessions found.")
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+    return latest
 
 
 def parse_args() -> argparse.Namespace:
@@ -117,10 +120,14 @@ def build_request(session_dir: Path, preferences: dict) -> dict:
     summary_path = session_dir / "summary.json"
     summary = read_json(summary_path, {})
     orchestrator = preferences.get("orchestrator", {}) if isinstance(preferences.get("orchestrator"), dict) else {}
+    runtime_state = read_runtime_state()
+    active_project_root = runtime_state.get("active_project_root")
     review = summary.get("review", {}) if isinstance(summary.get("review"), dict) else {}
     configured_project_root = orchestrator.get("project_root")
     effective_project_root = (
-        str(Path.cwd())
+        str(active_project_root).strip()
+        if isinstance(active_project_root, str) and active_project_root.strip()
+        else str(Path.cwd())
         if configured_project_root in {None, "", "auto"}
         else str(configured_project_root)
     )
@@ -215,6 +222,49 @@ def format_bullets(items: list[str], empty_text: str) -> str:
     return "\n".join(f"- {item}" for item in items)
 
 
+def summarize_agent_event(raw_line: str) -> str:
+    try:
+        payload = json.loads(raw_line)
+    except Exception:  # noqa: BLE001
+        return raw_line
+
+    event_type = payload.get("type")
+    if event_type == "thread.started":
+        thread_id = payload.get("thread_id") or "unknown"
+        return f"Started Codex thread `{thread_id}`"
+
+    item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
+    item_type = item.get("type")
+    status = item.get("status")
+
+    if item_type == "agent_message":
+        text = str(item.get("text") or "").strip()
+        if len(text) > 140:
+            text = text[:137] + "..."
+        return text or "Agent posted an update"
+
+    if item_type == "command_execution":
+        command = str(item.get("command") or "").strip()
+        if len(command) > 110:
+            command = command[:107] + "..."
+        prefix = "Running" if status == "in_progress" or event_type == "item.started" else "Finished"
+        return f"{prefix} command: `{command}`"
+
+    if event_type == "turn.completed":
+        return "Agent turn completed"
+
+    if event_type == "turn.failed":
+        return "Agent turn failed"
+
+    if event_type == "item.completed":
+        return "Agent step completed"
+
+    if event_type == "item.started":
+        return "Agent step started"
+
+    return raw_line if len(raw_line) <= 140 else raw_line[:137] + "..."
+
+
 def write_workspace_links(
     workspace_dir: Path,
     *,
@@ -251,29 +301,28 @@ def write_workspace_recording_md(
     review = summary.get("review", {}) if isinstance(summary.get("review"), dict) else {}
     live_review_url = summary.get("live_review", {}).get("live_review_url") if isinstance(summary.get("live_review"), dict) else None
     transcript = str(review.get("transcript") or "")
+    transcript_preview = transcript.strip() or "No transcript available."
     content = f"""# Screen Commander Recording
 
-Session: `{session_dir.name}`
-Mode: `{request.get("mode")}`
-Project: `{request.get("project_root")}`
-Live review: {live_review_url or "not available"}
+## Summary
 
-## Recognized Transcript
+- Session: `{session_dir.name}`
+- Mode: `{request.get("mode")}`
+- Project: `{request.get("project_root")}`
+- Live review: {live_review_url or "not available"}
 
-{transcript or "No transcript available."}
+## Transcript
 
-## Local Artifacts
+{transcript_preview}
 
-Transcript copy:
-{asset_paths.get("transcript_path") or "not copied"}
+## Review Assets
 
-Trajectory overlays:
+- Transcript copy: {asset_paths.get("transcript_path") or "not copied"}
+- Overlay images:
 {format_bullets(list(asset_paths.get("overlay_paths") or []), "No overlay images copied")}
-
-Focus crops:
+- Focus crops:
 {format_bullets(list(asset_paths.get("crop_paths") or []), "No crop images copied")}
-
-Keyframes:
+- Keyframes:
 {format_bullets(list(asset_paths.get("keyframe_paths") or []), "No keyframes copied")}
 """
     path = workspace_dir / "recording.md"
@@ -294,24 +343,26 @@ def write_workspace_progress_md(
     events_tail = []
     if events_path.exists():
         lines = [line for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        events_tail = lines[-10:]
+        events_tail = [summarize_agent_event(line) for line in lines[-5:]]
     content = f"""# Screen Commander Agent Progress
 
-Session: `{session_dir.name}`
-Status: `{status.get("status", "pending")}`
-Mode: `{status.get("mode") or request.get("mode") or "unknown"}`
-Project: `{status.get("project_root") or request.get("project_root") or "not configured"}`
-Started: `{status.get("started_at") or "n/a"}`
-Finished: `{status.get("finished_at") or "n/a"}`
-Exit Code: `{status.get("exit_code") if status.get("exit_code") is not None else "n/a"}`
-Live review: {live_review_url or "not available"}
-Codex thread: {status.get("thread_url") or "not available"}
+## Status
 
-## Progress
+- Session: `{session_dir.name}`
+- Status: `{status.get("status", "pending")}`
+- Mode: `{status.get("mode") or request.get("mode") or "unknown"}`
+- Project: `{status.get("project_root") or request.get("project_root") or "not configured"}`
+- Current step: {status.get("reason") or "n/a"}
+- Live review: {live_review_url or "not available"}
+- Codex thread: {status.get("thread_url") or "not available"}
 
-Current reason: {status.get("reason") or "n/a"}
+## Timing
 
-## Recent Agent Events
+- Started: `{status.get("started_at") or "n/a"}`
+- Finished: `{status.get("finished_at") or "n/a"}`
+- Exit code: `{status.get("exit_code") if status.get("exit_code") is not None else "n/a"}`
+
+## Recent Events
 
 {format_bullets(events_tail, "No agent events recorded yet")}
 """
@@ -331,12 +382,14 @@ def write_workspace_result_md(
     result_body = result_path.read_text(encoding="utf-8").strip() if result_path.exists() else "No agent result yet."
     content = f"""# Screen Commander Agent Result
 
-Session: `{session_dir.name}`
-Status: `{status.get("status", "pending")}`
-Mode: `{status.get("mode") or request.get("mode") or "unknown"}`
-Project: `{status.get("project_root") or request.get("project_root") or "not configured"}`
-Exit Code: `{status.get("exit_code") if status.get("exit_code") is not None else "n/a"}`
-Codex thread: {status.get("thread_url") or "not available"}
+## Top Line
+
+- Session: `{session_dir.name}`
+- Status: `{status.get("status", "pending")}`
+- Mode: `{status.get("mode") or request.get("mode") or "unknown"}`
+- Project: `{status.get("project_root") or request.get("project_root") or "not configured"}`
+- Exit code: `{status.get("exit_code") if status.get("exit_code") is not None else "n/a"}`
+- Codex thread: {status.get("thread_url") or "not available"}
 
 ## Result
 
@@ -868,8 +921,11 @@ def run(session_dir: Path) -> int:
 
 
 def main() -> int:
+    migrate_legacy_state()
     args = parse_args()
-    session_dir = SESSIONS_DIR / args.session if args.session else latest_session_dir()
+    session_dir = locate_session_dir(args.session) if args.session else latest_session_dir()
+    if session_dir is None:
+        raise FileNotFoundError(f"Session not found: {args.session}")
     return run(session_dir)
 
 

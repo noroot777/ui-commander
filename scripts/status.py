@@ -12,11 +12,12 @@ from pathlib import Path
 
 from install_native_host import HOST_NAME, extension_id, manifest_dir, project_root
 from preferences_store import read_preferences
+from state_paths import migrate_legacy_state, runtime_state_path
 
 
 CHROME_ROOT = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
 PYTHON_BIN = "/opt/homebrew/opt/python@3.11/libexec/bin/python"
-RUNTIME_STATE_PATH = project_root() / ".screen-commander" / "runtime-state.json"
+RUNTIME_STATE_PATH = runtime_state_path()
 COMMON_COMMAND_PATHS = {
     "ffmpeg": [
         "/opt/homebrew/bin/ffmpeg",
@@ -110,6 +111,7 @@ def dependency_status() -> dict[str, object]:
 
 
 def main() -> int:
+    migrate_legacy_state()
     expected_extension_id = extension_id()
     extension_ok, profile = extension_installed(expected_extension_id)
     host_ok = host_ready(expected_extension_id)

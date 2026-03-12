@@ -9,10 +9,8 @@ import time
 from pathlib import Path
 
 from preferences_store import read_preferences, update_preferences
-
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SESSIONS_DIR = PROJECT_ROOT / ".screen-commander" / "sessions"
+from runtime_state import set_active_project_root
+from state_paths import all_session_dirs, locate_session_dir, migrate_legacy_state
 
 
 def read_json(path: Path, default: object) -> object:
@@ -40,9 +38,7 @@ def session_payload(session_dir: Path) -> dict[str, object]:
 
 
 def latest_candidates() -> list[Path]:
-    if not SESSIONS_DIR.exists():
-        return []
-    return sorted((path for path in SESSIONS_DIR.iterdir() if path.is_dir()), key=lambda path: path.stat().st_mtime_ns)
+    return sorted(all_session_dirs(), key=lambda path: path.stat().st_mtime_ns)
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,8 +55,8 @@ def baseline_mtime_ns(after_session: str | None, explicit_after_mtime_ns: int | 
     if explicit_after_mtime_ns is not None:
         return explicit_after_mtime_ns
     if after_session:
-        path = SESSIONS_DIR / after_session
-        if path.exists():
+        path = locate_session_dir(after_session)
+        if path and path.exists():
             return path.stat().st_mtime_ns
     candidates = latest_candidates()
     if not candidates:
@@ -77,7 +73,9 @@ def should_accept(session_dir: Path, baseline_ns: int, after_session: str | None
 
 
 def main() -> int:
+    migrate_legacy_state()
     args = parse_args()
+    set_active_project_root(str(Path.cwd()))
     baseline_ns = baseline_mtime_ns(args.after_session, args.after_mtime_ns)
     previous_auto_run = None
 

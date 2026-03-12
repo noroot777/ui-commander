@@ -1,7 +1,8 @@
 #!/bin/sh
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-LOG_FILE="$SCRIPT_DIR/../.screen-commander/native-host.log"
-mkdir -p "$(dirname "$LOG_FILE")"
+STATE_ROOT="$HOME/.screen-commander"
+LOG_FILE="$STATE_ROOT/native-host.log"
+mkdir -p "$STATE_ROOT"
 
 PYTHON_BIN=/opt/homebrew/opt/python@3.11/libexec/bin/python
 

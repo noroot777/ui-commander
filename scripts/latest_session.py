@@ -4,24 +4,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SESSIONS_DIR = PROJECT_ROOT / ".screen-commander" / "sessions"
+from state_paths import latest_session_dir, migrate_legacy_state
 
 
 def main() -> int:
-    if not SESSIONS_DIR.exists():
-        print("No sessions directory found.")
-        return 1
-
-    candidates = [path for path in SESSIONS_DIR.iterdir() if path.is_dir()]
-    if not candidates:
+    migrate_legacy_state()
+    latest = latest_session_dir()
+    if latest is None:
         print("No sessions found.")
         return 1
-
-    latest = max(candidates, key=lambda path: path.stat().st_mtime)
     summary = latest / "summary.json"
     summary_payload = {}
     if summary.exists():

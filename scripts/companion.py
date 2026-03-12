@@ -30,14 +30,28 @@ except Exception:  # noqa: BLE001
     ImageDraw = None
 
 from preferences_store import read_preferences, normalize_language_tag
+from runtime_state import read_runtime_state, write_runtime_state
+from state_paths import (
+    all_session_dirs,
+    latest_session_dir,
+    language_profile_path,
+    locate_session_dir,
+    migrate_legacy_state,
+    native_host_log_path,
+    project_slug,
+    runtime_state_path,
+    session_path,
+    sessions_dir,
+    server_info_path,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ROOT = PROJECT_ROOT / ".screen-commander" / "sessions"
-LOG_PATH = PROJECT_ROOT / ".screen-commander" / "native-host.log"
-LANGUAGE_PROFILE_PATH = PROJECT_ROOT / ".screen-commander" / "language-profile.json"
-SERVER_INFO_PATH = PROJECT_ROOT / ".screen-commander" / "session-server.json"
-RUNTIME_STATE_PATH = PROJECT_ROOT / ".screen-commander" / "runtime-state.json"
+ROOT = sessions_dir()
+LOG_PATH = native_host_log_path()
+LANGUAGE_PROFILE_PATH = language_profile_path()
+SERVER_INFO_PATH = server_info_path()
+RUNTIME_STATE_PATH = runtime_state_path()
 COMMON_COMMAND_PATHS = {
     "ffmpeg": [
         "/opt/homebrew/bin/ffmpeg",
@@ -74,6 +88,7 @@ def utc_now() -> str:
 
 
 def log_line(message: str) -> None:
+    migrate_legacy_state()
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LOG_PATH.open("a", encoding="utf-8") as handle:
         handle.write(f"{utc_now()} {message}\n")
@@ -91,24 +106,6 @@ def read_language_profile() -> dict:
 def write_language_profile(payload: dict) -> None:
     LANGUAGE_PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     LANGUAGE_PROFILE_PATH.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
-        encoding="utf-8",
-    )
-
-
-def read_runtime_state() -> dict:
-    if not RUNTIME_STATE_PATH.exists():
-        return {}
-    try:
-        payload = json.loads(RUNTIME_STATE_PATH.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def write_runtime_state(payload: dict) -> None:
-    RUNTIME_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RUNTIME_STATE_PATH.write_text(
         json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
@@ -294,11 +291,27 @@ def update_language_profile(language: str | None, score: float) -> None:
 
 
 def session_dir(session_id: str) -> Path:
-    return ROOT / session_id
+    return session_path(session_id)
 
 
-def ensure_session(session_id: str) -> Path:
-    path = session_dir(session_id)
+def session_project_root() -> str | None:
+    runtime_state = read_runtime_state()
+    active_project_root = runtime_state.get("active_project_root")
+    if isinstance(active_project_root, str):
+        value = active_project_root.strip()
+        if value and value != "auto":
+            return value
+    preferences = read_preferences()
+    orchestrator = preferences.get("orchestrator", {}) if isinstance(preferences.get("orchestrator"), dict) else {}
+    project_root = orchestrator.get("project_root")
+    if isinstance(project_root, str):
+        value = project_root.strip()
+        return value or None
+    return None
+
+
+def ensure_session(session_id: str, project_root: str | None = None) -> Path:
+    path = session_path(session_id, project_root=project_root)
     (path / "screenshots").mkdir(parents=True, exist_ok=True)
     (path / "audio").mkdir(parents=True, exist_ok=True)
     return path
@@ -588,13 +601,16 @@ def append_jsonl(path: Path, payload: object) -> None:
 def start_session(payload: dict) -> dict:
     log_line(f"start_session url={payload.get('url')!r} title={payload.get('title')!r}")
     session_id = payload.get("session_id") or datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
-    path = ensure_session(session_id)
+    current_project_root = session_project_root()
+    path = ensure_session(session_id, project_root=current_project_root)
     meta = {
         "session_id": session_id,
         "created_at": utc_now(),
         "status": "recording",
         "url": payload.get("url"),
         "title": payload.get("title"),
+        "project_root": current_project_root or "auto",
+        "project_slug": project_slug(current_project_root),
     }
     write_json(path / "session.json", meta)
     mark_extension_confirmed(session_id, payload.get("url"), payload.get("title"))

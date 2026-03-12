@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
+from state_paths import migrate_legacy_state, preferences_path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PREFERENCES_PATH = PROJECT_ROOT / ".screen-commander" / "preferences.json"
+PREFERENCES_PATH = preferences_path()
 DEFAULT_TRANSCRIPTION_MODEL = "small"
 SUPPORTED_TRANSCRIPTION_MODELS = (
     "tiny",
@@ -81,6 +80,7 @@ def default_preferences() -> dict:
 
 
 def read_preferences() -> dict:
+    migrate_legacy_state()
     payload = default_preferences()
     if PREFERENCES_PATH.exists():
         try:
@@ -120,6 +120,7 @@ def read_preferences() -> dict:
 
 
 def write_preferences(payload: dict) -> dict:
+    migrate_legacy_state()
     merged = default_preferences()
     transcription = payload.get("transcription", {}) if isinstance(payload, dict) else {}
     orchestrator = payload.get("orchestrator", {}) if isinstance(payload, dict) else {}

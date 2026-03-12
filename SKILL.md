@@ -20,13 +20,15 @@ This skill is stateful. On every trigger, check local readiness first and adapt 
 6. If no preferred narration language has been saved yet, ask the user what language they usually narrate in and persist it before recording.
 7. Do not ask about transcription models by default. Only change models when the current transcript quality is poor or the user explicitly asks. When the user chooses a stronger model, persist that model so future sessions keep using it until the user changes it again.
 8. Enter blocking watch mode before the user records. This is the default and only primary interaction mode for this skill.
-9. Tell the user to focus the target Chrome tab, press `Option+S` to start recording, reproduce the bug, then press `Option+E` to stop.
-10. Wait for the next finalized session in the current thread, then continue from those artifacts in the same thread.
-11. Use the current thread to analyze and, when appropriate, apply code changes. Do not rely on a separate background Codex task as the primary path.
+9. When watch mode starts, bind the current workspace as the active project root for the upcoming session.
+10. Tell the user to focus the target Chrome tab, press `Option+S` to start recording, reproduce the bug, then press `Option+E` to stop.
+11. Wait for the next finalized session in the current thread, then continue from those artifacts in the same thread.
+12. Use the current thread to analyze and, when appropriate, apply code changes. Do not rely on a separate background Codex task as the primary path.
 
 Use blocking watch mode on every normal trigger:
 - run `/opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id>`
 - this temporarily suppresses background `auto_run` while waiting for the next finalized session
+- it also binds the current workspace as the active project root, so the raw session is grouped under that project instead of `unassigned`
 - after the next session arrives, continue in the current thread using that session's artifacts
 - if the user asked for direct code changes, do the edits in the current thread instead of waiting for the background orchestrator
 
@@ -112,7 +114,7 @@ The extension captures:
 - network requests, responses, and loading failures
 - microphone narration from the local companion, using the current macOS default input device
 
-The native host writes a session directory under `.screen-commander/sessions/`.
+The native host writes raw session directories under `/tmp/screen-commander/sessions/`, grouped by project when a workspace is known. Long-lived preferences and runtime state stay under `~/.screen-commander/`.
 
 ## Step 4: Finalize artifacts
 
@@ -122,10 +124,10 @@ If needed, run finalization manually:
 /opt/homebrew/opt/python@3.11/libexec/bin/python <skill-dir>/scripts/companion.py finalize --session <session-id>
 ```
 
-Read the latest session summary from:
+Read the latest session summary from the newest shared session directory:
 
 ```text
-.screen-commander/sessions/<session-id>/summary.json
+/tmp/screen-commander/sessions/<project-slug>/<session-id>/summary.json
 ```
 
 Or locate the newest session with:

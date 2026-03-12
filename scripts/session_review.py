@@ -7,9 +7,9 @@ import argparse
 import json
 from pathlib import Path
 
+from state_paths import latest_session_dir as latest_shared_session_dir, locate_session_dir, migrate_legacy_state
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SESSIONS_DIR = PROJECT_ROOT / ".screen-commander" / "sessions"
 
 
 def codex_thread_info(events_path: Path) -> dict[str, str]:
@@ -32,11 +32,11 @@ def codex_thread_info(events_path: Path) -> dict[str, str]:
     return {}
 
 
-def latest_session_dir() -> Path:
-    candidates = [path for path in SESSIONS_DIR.iterdir() if path.is_dir()]
-    if not candidates:
+def latest_local_session_dir() -> Path:
+    latest = latest_shared_session_dir()
+    if latest is None:
         raise FileNotFoundError("No sessions found.")
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+    return latest
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,8 +52,11 @@ def read_json(path: Path, default: object) -> object:
 
 
 def main() -> int:
+    migrate_legacy_state()
     args = parse_args()
-    session_dir = SESSIONS_DIR / args.session if args.session else latest_session_dir()
+    session_dir = locate_session_dir(args.session) if args.session else latest_local_session_dir()
+    if session_dir is None:
+        raise FileNotFoundError(f"Session not found: {args.session}")
     summary = read_json(session_dir / "summary.json", {})
     focus_regions = read_json(session_dir / "focus_regions.json", [])
     agent_status = read_json(session_dir / "agent-status.json", {})

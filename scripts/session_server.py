@@ -13,10 +13,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote
 
+from state_paths import locate_session_dir, migrate_legacy_state, server_info_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SESSIONS_DIR = PROJECT_ROOT / ".screen-commander" / "sessions"
-SERVER_INFO_PATH = PROJECT_ROOT / ".screen-commander" / "session-server.json"
+SERVER_INFO_PATH = server_info_path()
 
 
 def utc_now() -> str:
@@ -40,7 +40,11 @@ def write_json(path: Path, payload: object) -> None:
 
 
 def session_dir(session_id: str) -> Path:
-    return SESSIONS_DIR / session_id
+    migrate_legacy_state()
+    path = locate_session_dir(session_id)
+    if path is None:
+        return Path("__missing_session__")
+    return path
 
 
 def json_response(handler: BaseHTTPRequestHandler, status: int, payload: object) -> None:
@@ -522,6 +526,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    migrate_legacy_state()
     args = parse_args()
     if args.command != "run":
         return 1
