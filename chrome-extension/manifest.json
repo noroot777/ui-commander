@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "Screen Commander",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA94LXhHbUvHxOq/AUDEYKrbWIAwvJzSukIAevssE0VGfVKkCWpMxMw2kcPf3LwMnubU6PeXfx7day7AdwbAAW4RxRDpU0soTH1xs8ZKGsIKYHb4El0zVwcZYVoCJbcxI6Lcj8X9P+g4kaiNsUJZMmhWIuNpAjdM31UF4nI+XZEarMaXqHbeoFjcRhR98wcHFufJ5ukORasO5ketKw6slektX2SCCjGKOJHULIl6/UQsOHq92UDQ3I+J4bGXjLDqfxMtIhsKdTC2zzvr6v4PHbuPJ7GoQZfo6xbHpBDEjhhYwzhniLG9bq2ZW0TbVJ54AwodlqgcnNfWXLJmr/UerxCwIDAQAB",
+  "description": "Capture frontend bug reproductions in the current Chrome session.",
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "nativeMessaging",
+    "offscreen",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "minimum_chrome_version": "116",
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Screen Commander"
+  },
+  "commands": {
+    "start-recording": {
+      "suggested_key": {
+        "default": "Alt+S",
+        "mac": "Alt+S"
+      },
+      "description": "Start the current Screen Commander session"
+    },
+    "stop-recording": {
+      "suggested_key": {
+        "default": "Alt+E",
+        "mac": "Alt+E"
+      },
+      "description": "Stop the current Screen Commander session"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

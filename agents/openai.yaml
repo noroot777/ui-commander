@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Screen Commander
+  short_description: Capture Chrome bug reproductions and turn them into structured session artifacts.
+  default_prompt: Check whether the Screen Commander extension and native host are ready, default the target project to the current workspace unless the user explicitly overrides it, confirm preferred narration language only when it is still unset, keep the saved transcription model by default, and only suggest a stronger model when current transcript quality is poor or the user asks to change it. On every normal trigger, enter blocking watch mode first so the current thread waits for the next finalized session and then continues from those artifacts in-thread. Do not rely on a detached background Codex CLI task unless the user explicitly asks for a background run.
