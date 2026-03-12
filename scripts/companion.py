@@ -1340,6 +1340,8 @@ def handle_message(message: dict) -> dict:
     payload = message.get("payload", {})
     if command == "ping":
         return {"ok": True, "message": "pong"}
+    if command == "get_preferences":
+        return {"ok": True, "preferences": read_preferences()}
     if command == "start_session":
         return start_session(payload)
     if command == "append_event":

@@ -15,6 +15,94 @@ let keyframeTimer = null;
 let keyframeCaptureInFlight = false;
 const KEYFRAME_INTERVAL_MS = 900;
 let platformOs = null;
+let preferredLanguage = null;
+
+const I18N = {
+  en: {
+    recordingStartedTitle: "Recording started",
+    recordingStartedBody: "Start speaking now, then reproduce the bug in this page.",
+    recordingStartedNoMicBody: "Microphone is unavailable, so this run will capture visuals only.",
+    stopWith: (stop) => `Stop with ${stop}`,
+    savingTitle: "Saving recording",
+    savingBody: "Please wait while Screen Commander writes the session, transcript, and review.",
+    savingHint: "This message will update when everything is ready.",
+    completeTitle: "Recording complete",
+    completeBody: "The session was saved successfully.",
+    completeHint: "Review is ready.",
+    completeWithAgentBody: "Review is ready and the follow-up agent task has started.",
+    completeWithAgentHint: "You can switch to the review page or stay in the IDE.",
+    stillSavingTitle: "Still saving the last recording",
+    stillSavingBody: "Please wait for the current session to finish finalizing before you start a new one.",
+    stillSavingShortBody: "Please wait a moment before trying to stop again.",
+    alreadyRecordingTitle: "Already recording",
+    alreadyRecordingBody: "Screen Commander is already capturing this page.",
+    unableToStartTitle: "Unable to start recording",
+    unableToStartBody: (start) => `Screen Commander could not start this recording with ${start}.`,
+    notRecordingTitle: "Not currently recording",
+    notRecordingBody: (start) => `Press ${start} first to start a new Screen Commander session.`,
+    unableToStopTitle: "Unable to stop recording",
+    unableToStopBody: (stop) => `Screen Commander could not stop this recording cleanly with ${stop}.`,
+    shortcutsTitle: "Screen Commander shortcuts",
+    shortcutsBody: (start, stop) => `Press ${start} to start recording on this page.\nPress ${stop} to stop and save the session.`,
+    shortcutsHint: "After the start cue appears, begin speaking.",
+  },
+  zh: {
+    recordingStartedTitle: "开始录制",
+    recordingStartedBody: "现在可以开始说了，然后在这个页面里复现问题。",
+    recordingStartedNoMicBody: "麦克风当前不可用，这次只会采集画面和操作。",
+    stopWith: (stop) => `按 ${stop} 结束录制`,
+    savingTitle: "正在保存录制",
+    savingBody: "Screen Commander 正在整理 session、转录文本和 review 页面，请稍等。",
+    savingHint: "完成后这条提示会自动更新。",
+    completeTitle: "录制完成",
+    completeBody: "这次 session 已经成功保存。",
+    completeHint: "review 已准备好。",
+    completeWithAgentBody: "review 已准备好，后续 agent 任务也已经启动。",
+    completeWithAgentHint: "你可以切到 review 页面，也可以留在 IDE 里继续看。",
+    stillSavingTitle: "上一条录制还在保存",
+    stillSavingBody: "请等当前 session 完成收尾后，再开始下一条录制。",
+    stillSavingShortBody: "请稍等一下，当前录制还在保存。",
+    alreadyRecordingTitle: "已经在录制中了",
+    alreadyRecordingBody: "Screen Commander 正在采集当前页面。",
+    unableToStartTitle: "无法开始录制",
+    unableToStartBody: (start) => `Screen Commander 暂时无法用 ${start} 开始这次录制。`,
+    notRecordingTitle: "当前没有在录制",
+    notRecordingBody: (start) => `请先按 ${start} 开始新的 Screen Commander 录制。`,
+    unableToStopTitle: "无法结束录制",
+    unableToStopBody: (stop) => `Screen Commander 暂时无法用 ${stop} 正常结束这次录制。`,
+    shortcutsTitle: "Screen Commander 快捷键",
+    shortcutsBody: (start, stop) => `按 ${start} 开始录制当前页面。\n按 ${stop} 结束并保存这次 session。`,
+    shortcutsHint: "看到开始提示后，再开口描述问题。",
+  },
+  ja: {
+    recordingStartedTitle: "録画を開始しました",
+    recordingStartedBody: "ここから話し始めて、このページで不具合を再現してください。",
+    recordingStartedNoMicBody: "マイクが使えないため、今回は画面と操作だけを記録します。",
+    stopWith: (stop) => `${stop} で停止`,
+    savingTitle: "録画を保存しています",
+    savingBody: "Screen Commander が session、文字起こし、review を保存しています。少し待ってください。",
+    savingHint: "準備が整うとこの表示が更新されます。",
+    completeTitle: "録画が完了しました",
+    completeBody: "この session は正常に保存されました。",
+    completeHint: "review の準備ができました。",
+    completeWithAgentBody: "review の準備ができ、後続の agent タスクも開始しました。",
+    completeWithAgentHint: "review ページに切り替えても、そのまま IDE にいても大丈夫です。",
+    stillSavingTitle: "前回の録画を保存中です",
+    stillSavingBody: "現在の session の保存が終わるまで、新しい録画の開始を少し待ってください。",
+    stillSavingShortBody: "前回の録画をまだ保存中です。少し待ってください。",
+    alreadyRecordingTitle: "すでに録画中です",
+    alreadyRecordingBody: "Screen Commander はこのページをすでに記録しています。",
+    unableToStartTitle: "録画を開始できませんでした",
+    unableToStartBody: (start) => `${start} でこの録画を開始できませんでした。`,
+    notRecordingTitle: "現在は録画していません",
+    notRecordingBody: (start) => `まず ${start} を押して、新しい Screen Commander session を開始してください。`,
+    unableToStopTitle: "録画を停止できませんでした",
+    unableToStopBody: (stop) => `${stop} でこの録画を正常に停止できませんでした。`,
+    shortcutsTitle: "Screen Commander ショートカット",
+    shortcutsBody: (start, stop) => `${start} でこのページの録画を開始します。\n${stop} で停止して session を保存します。`,
+    shortcutsHint: "開始メッセージが出てから話し始めてください。",
+  }
+};
 
 function platformInfo() {
   return new Promise((resolve) => {
@@ -33,6 +121,24 @@ async function shortcutLabels() {
     return { start: "Option+S", stop: "Option+E" };
   }
   return { start: "Alt+S", stop: "Alt+E" };
+}
+
+async function ensurePreferredLanguage() {
+  if (preferredLanguage) {
+    return preferredLanguage;
+  }
+  try {
+    const response = await sendNative("get_preferences");
+    preferredLanguage = response?.preferences?.transcription?.preferred_language || "en";
+  } catch (_error) {
+    preferredLanguage = "en";
+  }
+  return preferredLanguage;
+}
+
+async function localizedCopy() {
+  const language = await ensurePreferredLanguage();
+  return I18N[language] || I18N.en;
 }
 
 function setIdleBadge() {
@@ -325,6 +431,7 @@ async function detachDebugger() {
 
 async function startSession(tab, microphone = null) {
   const shortcuts = await shortcutLabels();
+  const copy = await localizedCopy();
   await ensureRecorderWindow();
   const response = await sendNative("start_session", {
     url: tab.url,
@@ -387,15 +494,15 @@ async function startSession(tab, microphone = null) {
       tab.id,
       audioEnabled || response.native_audio?.enabled
         ? {
-            title: "Recording started",
-            body: "Start speaking now, then reproduce the bug in this page.",
-            hint: `Stop with ${shortcuts.stop}`,
+            title: copy.recordingStartedTitle,
+            body: copy.recordingStartedBody,
+            hint: copy.stopWith(shortcuts.stop),
             durationMs: 5200
           }
         : {
-            title: "Recording started",
-            body: "Microphone is unavailable, so this run will capture visuals only.",
-            hint: `Stop with ${shortcuts.stop}`,
+            title: copy.recordingStartedTitle,
+            body: copy.recordingStartedNoMicBody,
+            hint: copy.stopWith(shortcuts.stop),
             durationMs: 5600,
             tone: "warning"
           },
@@ -417,6 +524,7 @@ async function startSession(tab, microphone = null) {
 }
 
 async function stopSession() {
+  const copy = await localizedCopy();
   if (!sessionId || finalizing) {
     return null;
   }
@@ -428,9 +536,9 @@ async function stopSession() {
   if (stoppingTabId !== null) {
     await setContentCaptureState(stoppingTabId, false);
     await showPageCue(stoppingTabId, {
-      title: "Saving recording",
-      body: "Please wait while Screen Commander writes the session, transcript, and review.",
-      hint: "This message will update when everything is ready.",
+      title: copy.savingTitle,
+      body: copy.savingBody,
+      hint: copy.savingHint,
       sticky: true
     }, "info");
   }
@@ -471,14 +579,14 @@ async function stopSession() {
       stoppingTabId,
       response?.orchestrator?.triggered
         ? {
-            title: "Recording complete",
-            body: "Review is ready and the follow-up agent task has started.",
-            hint: "You can switch to the review page or stay in the IDE."
+            title: copy.completeTitle,
+            body: copy.completeWithAgentBody,
+            hint: copy.completeWithAgentHint
           }
         : {
-            title: "Recording complete",
-            body: "The session was saved successfully.",
-            hint: "Review is ready."
+            title: copy.completeTitle,
+            body: copy.completeBody,
+            hint: copy.completeHint
           },
       "success"
     );
@@ -614,18 +722,19 @@ chrome.commands.onCommand.addListener((command) => {
   if (command === "start-recording") {
     void (async () => {
       const shortcuts = await shortcutLabels();
+      const copy = await localizedCopy();
       if (recording || finalizing) {
         if (activeTabId !== null) {
           await showPageCue(
             activeTabId,
             finalizing
               ? {
-                  title: "Still saving the last recording",
-                  body: "Please wait for the current session to finish finalizing before you start a new one."
+                  title: copy.stillSavingTitle,
+                  body: copy.stillSavingBody
                 }
               : {
-                  title: "Already recording",
-                  body: "Screen Commander is already capturing this page."
+                  title: copy.alreadyRecordingTitle,
+                  body: copy.alreadyRecordingBody
                 },
             "info"
           );
@@ -638,8 +747,8 @@ chrome.commands.onCommand.addListener((command) => {
       const tab = activeTabId ? { id: activeTabId } : await currentTab().catch(() => null);
       if (tab?.id) {
         await showPageCue(tab.id, {
-          title: "Unable to start recording",
-          body: error.message || `Screen Commander could not start this recording with ${shortcuts.start}.`
+          title: copy.unableToStartTitle,
+          body: error.message || copy.unableToStartBody(shortcuts.start)
         }, "warning");
       }
     });
@@ -648,12 +757,13 @@ chrome.commands.onCommand.addListener((command) => {
   if (command === "stop-recording") {
     void (async () => {
       const shortcuts = await shortcutLabels();
+      const copy = await localizedCopy();
       if (finalizing) {
         const tab = await currentTab().catch(() => null);
         if (tab?.id) {
           await showPageCue(tab.id, {
-            title: "Still saving the last recording",
-            body: "Please wait a moment before trying to stop again."
+            title: copy.stillSavingTitle,
+            body: copy.stillSavingShortBody
           }, "info");
         }
         return;
@@ -662,8 +772,8 @@ chrome.commands.onCommand.addListener((command) => {
         const tab = await currentTab().catch(() => null);
         if (tab?.id) {
           await showPageCue(tab.id, {
-            title: "Not currently recording",
-            body: `Press ${shortcuts.start} first to start a new Screen Commander session.`
+            title: copy.notRecordingTitle,
+            body: copy.notRecordingBody(shortcuts.start)
           }, "info");
         }
         return;
@@ -673,8 +783,8 @@ chrome.commands.onCommand.addListener((command) => {
       const tab = activeTabId ? { id: activeTabId } : await currentTab().catch(() => null);
       if (tab?.id) {
         await showPageCue(tab.id, {
-          title: "Unable to stop recording",
-          body: error.message || `Screen Commander could not stop this recording cleanly with ${shortcuts.stop}.`
+          title: copy.unableToStopTitle,
+          body: error.message || copy.unableToStopBody(shortcuts.stop)
         }, "warning");
       }
     });
@@ -686,10 +796,11 @@ chrome.action.onClicked.addListener(async (tab) => {
     return;
   }
   const shortcuts = await shortcutLabels();
+  const copy = await localizedCopy();
   await showPageCue(tab.id, {
-    title: "Screen Commander shortcuts",
-    body: `Press ${shortcuts.start} to start recording on this page.\nPress ${shortcuts.stop} to stop and save the session.`,
-    hint: "After the start cue appears, begin speaking.",
+    title: copy.shortcutsTitle,
+    body: copy.shortcutsBody(shortcuts.start, shortcuts.stop),
+    hint: copy.shortcutsHint,
     durationMs: 7000
   }, "info");
 });
