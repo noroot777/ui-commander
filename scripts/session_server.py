@@ -644,7 +644,7 @@ def live_page_html(session_id: str) -> str:
         ["Agent Status", agent.status || "pending"],
         ["Mode", agent.mode || "unknown"],
         ["Project", agent.project_root || "not configured"],
-        ["Codex Thread", agent.thread_id || "n/a"],
+        ["Host Conversation", agent.thread_id || "n/a"],
         ["Workspace Run", agent.workspace_run_dir || "n/a"],
       ];
       metaEl.innerHTML = rows.map(([label, value]) => `
@@ -678,7 +678,7 @@ def live_page_html(session_id: str) -> str:
         ["agent-status.json", links.agent_status_json],
         ["static review", links.review_html],
         ["agent-result.md", links.agent_result],
-        ["Codex thread", links.codex_thread],
+        ["Host conversation", links.codex_thread],
       ].filter(([, href]) => !!href);
       linksEl.innerHTML = rows.map(([label, href]) => `<a href="${{href}}" target="_blank" rel="noreferrer">${{label}}</a>`).join("");
     }}

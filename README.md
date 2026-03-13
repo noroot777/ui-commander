@@ -266,7 +266,7 @@ Each recording automatically produces a set of structured artifacts for agent pa
                    │
                    ▼
 ┌─────────────────────────────────────────────────┐
-│       AI Coding Agent (Codex / Copilot)          │
+│ Current Agent Host (Codex / Claude / OpenCode)  │
 │  Read artifacts → Analyze → Locate code → Fix   │
 └─────────────────────────────────────────────────┘
 ```

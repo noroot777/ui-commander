@@ -42,7 +42,7 @@ UI Commander 是一个面向 AI coding agent 的 **skill（技能插件）**。
 
 ## 安装
 
-将此仓库克隆到你的 skill 目录后，首次使用时 agent 会自动完成环境检查和 Native Host 注册。你唯一需要手动做的是**在 Chrome 中加载扩展**：
+将此仓库克隆到你所用平台的 skill 或插件目录后，首次使用时宿主 agent 会自动完成环境检查和 Native Host 注册。你唯一需要手动做的是**在 Chrome 中加载扩展**：
 
 1. 打开 `chrome://extensions`
 2. 开启 **开发者模式**
@@ -266,7 +266,7 @@ UI Commander 作为 skill 安装后，你只需要在和 AI agent 的对话中**
                    │
                    ▼
 ┌─────────────────────────────────────────────────┐
-│       AI Coding Agent (Codex / Copilot)          │
+│ 当前 Agent 宿主 (Codex / Claude / OpenCode)      │
 │  读取工件 → 分析问题 → 定位代码 → 修复           │
 └─────────────────────────────────────────────────┘
 ```

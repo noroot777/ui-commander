@@ -6,6 +6,8 @@ description: Capture a frontend bug reproduction inside the user's existing Chro
 
 Use this skill when the user wants to show a frontend bug in their normal Chrome session instead of describing it in text, or when the user already has a UI Commander session URL and wants the agent to continue from that recorded session. Also trigger it when the user pastes a ready-made prompt such as `使用ui commander分析 <session-url>` or `使用ui commander分析并直接修复 <session-url>`.
 
+This skill is designed to work across local coding-agent hosts such as Codex, Claude Code, OpenCode, and similar environments. The default path should stay host-agnostic: use the current conversation, current workspace, and local helper scripts. Treat any detached background runner as optional and platform-specific.
+
 The skill has one job: convert a narrated browser reproduction into structured session artifacts.
 
 This skill is stateful. On normal triggers, default to direct start instead of running a readiness checklist first. Do not start by telling the user to run commands. Prefer to run local helper scripts yourself and only ask the user for Chrome UI actions. If recording fails to start or stop, diagnose and repair the bridge at that point.
@@ -25,8 +27,8 @@ Default to a fresh recording on every new trigger. Ignore any previously recorde
 7. Once recording can begin, send one short bold reminder in the IDE chat. Keep it visually prominent and concise, and always adapt the shortcuts to the user's platform. Example on macOS: `**现在请切到 Chrome，按 Option+S 开始，按 Option+E 结束。**` Example on Windows or Linux: `**现在请切到 Chrome，按 Alt+S 开始，按 Alt+E 结束。**`
 8. Tell the user to focus the target Chrome tab, then use the platform-appropriate shortcuts to record: `Option+S` and `Option+E` on macOS, `Alt+S` and `Alt+E` on Windows or Linux.
 9. If start or stop fails, then run local diagnosis and repair: use `scripts/status.py` to inspect readiness and `scripts/setup.py` to repair the bridge when needed.
-10. Wait only for the next newly created finalized session in the current thread. Do not reuse an older session just because its files changed or the thread was reopened.
-11. Use the current thread to analyze and, when appropriate, apply code changes. Do not rely on a separate background Codex task as the primary path.
+10. Wait only for the next newly created finalized session in the current conversation. Do not reuse an older session just because its files changed or the conversation was reopened.
+11. Use the current conversation to analyze and, when appropriate, apply code changes. Do not rely on a detached background task or any platform-specific CLI runner as the primary path.
 
 ## Existing Session URLs
 
@@ -36,9 +38,9 @@ When the user provides a localhost UI Commander URL such as `http://127.0.0.1:47
 <python-bin> <skill-dir>/scripts/session_locator.py "<session-url-or-id>"
 ```
 
-This returns the resolved session directory, `summary.json`, review info, and artifact paths so the current thread can continue immediately from that session.
+This returns the resolved session directory, `summary.json`, review info, and artifact paths so the current conversation can continue immediately from that session.
 
-If the resolved session includes `intent_resolution.json` with `status=pending_host_fusion`, do not call an external API from the local companion. Instead, generate the host-fusion prompt from `intent_evidence.json`, use the current Codex thread to resolve the intent from that evidence bundle, then persist the structured result with:
+If the resolved session includes `intent_resolution.json` with `status=pending_host_fusion`, do not call an external API from the local companion. Instead, generate the host-fusion prompt from `intent_evidence.json`, use the current host conversation to resolve the intent from that evidence bundle, then persist the structured result with:
 
 ```bash
 <python-bin> <skill-dir>/scripts/intent_resolution.py prompt --session <session-id>
@@ -56,8 +58,8 @@ Use blocking watch mode on every normal trigger:
 - run `<python-bin> <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id>`
 - this temporarily suppresses background `auto_run` while waiting for the next finalized session
 - it also binds the current workspace as the active project root, so the raw session is grouped under that project instead of `unassigned`
-- after the next session arrives, continue in the current thread using that session's artifacts
-- if the user asked for direct code changes, do the edits in the current thread instead of waiting for the background orchestrator
+- after the next session arrives, continue in the current conversation using that session's artifacts
+- if the user asked for direct code changes, do the edits in the current conversation instead of waiting for the background orchestrator
 
 ## Step 1: Start directly
 
@@ -115,8 +117,8 @@ Also inspect `preferences.transcription` only when diagnosis is already happenin
 Also inspect `preferences.orchestrator` only when diagnosis is already happening or when the user explicitly asks to change background behavior:
 - `project_root` defaults to `auto`, which means the current workspace
 - default `mode` should stay `apply`
-- default `auto_run` should stay `off`, because the current thread is expected to continue from watch mode
-- only enable background `auto_run` if the user explicitly wants a detached background Codex CLI task instead of in-thread continuation
+- default `auto_run` should stay `off`, because the current conversation is expected to continue from watch mode
+- only enable background `auto_run` if the user explicitly wants a detached background runner instead of in-conversation continuation
 
 ## Step 3: Prepare the bridge
 
@@ -130,7 +132,7 @@ Only use `--open` for a genuine first-time install or when the user explicitly a
 
 This script checks dependencies, registers the Chrome Native Messaging host, opens `chrome://extensions`, and opens the unpacked extension directory in Finder.
 
-The extension talks to the local native host `dev.codex.ui_commander`. The host is short-lived: it starts when Chrome opens a native messaging connection, writes session data, finalizes artifacts, and exits when the session is done.
+The extension talks to a local native messaging host. That host is short-lived: it starts when Chrome opens a native messaging connection, writes session data, finalizes artifacts, and exits when the session is done.
 
 ## Step 4: Run a session
 
@@ -184,13 +186,13 @@ For the user-facing review bundle, run:
 
 The local companion now starts a lightweight localhost session server and opens a live review page automatically after recording finalization, so the user can immediately inspect the trajectory overlay, transcript, and downstream progress without returning to chat first.
 
-For blocking watch mode inside the current IDE thread, always wait for the next session with:
+For blocking watch mode inside the current host conversation, always wait for the next session with:
 
 ```bash
 <python-bin> <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id>
 ```
 
-Use this as the default behavior so the current thread keeps showing subtasks and then continues directly into analysis or code changes after the user finishes recording.
+Use this as the default behavior so the current conversation keeps showing progress and then continues directly into analysis or code changes after the user finishes recording.
 
 If a detached fallback run is explicitly enabled, the local orchestrator writes:
 - `agent-request.json`
@@ -198,7 +200,7 @@ If a detached fallback run is explicitly enabled, the local orchestrator writes:
 - `agent-result.md`
 - `agent-review.html`
 
-under the session directory and, when configured, invokes Codex CLI automatically. The localhost live review page is the primary user-facing progress view; `review.html` and `agent-review.html` remain as file-based fallbacks, but they are no longer the primary control path for normal triggers.
+under the session directory and, when configured, invokes a detached downstream runner automatically. The localhost live review page is the primary user-facing progress view; `review.html` and `agent-review.html` remain as file-based fallbacks, but they are no longer the primary control path for normal triggers.
 
 If `ffmpeg` and `whisper` are installed, finalization will also attempt to transcribe `audio/mic.wav` into `transcript.txt` and `segments.json`. The default transcription model is `small`. The companion uses the user's saved preferred language first, then learned and system language hints, and only falls back to automatic language detection when needed.
 
@@ -222,7 +224,7 @@ If `summary.json` contains `extension.reload_required=true`, tell the user plain
 
 Use the timeline as the primary source of truth for click or input workflows. Use `focus_regions.json` when the user mostly pointed, hovered, or drew circles instead of clicking. Use `referential_mentions.json` when the transcript contains phrases like "this", "that", "这个", or "这两个"; it links those phrases to nearby pointer hotspots by time. For each focus region, prefer the generated overlay and crop images in `focus_regions/` over raw bbox guessing.
 
-If `intent_resolution.json` is already `resolved`, prefer it as the highest-level intent summary. If it is `pending_host_fusion`, first run `scripts/intent_resolution.py prompt --session <session-id>`, use that evidence-driven prompt to resolve the user's intent in the current thread, and write the result back before summarizing.
+If `intent_resolution.json` is already `resolved`, prefer it as the highest-level intent summary. If it is `pending_host_fusion`, first run `scripts/intent_resolution.py prompt --session <session-id>`, use that evidence-driven prompt to resolve the user's intent in the current conversation, and write the result back before summarizing.
 
 Then summarize your understanding back to the user in a short numbered list before editing code.
 

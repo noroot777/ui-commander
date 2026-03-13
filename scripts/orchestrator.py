@@ -233,7 +233,7 @@ def summarize_agent_event(raw_line: str) -> str:
     event_type = payload.get("type")
     if event_type == "thread.started":
         thread_id = payload.get("thread_id") or "unknown"
-        return f"Started Codex thread `{thread_id}`"
+        return f"Started host conversation `{thread_id}`"
 
     item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
     item_type = item.get("type")
@@ -356,7 +356,7 @@ def write_workspace_progress_md(
 - Project: `{status.get("project_root") or request.get("project_root") or "not configured"}`
 - Current step: {status.get("reason") or "n/a"}
 - Live review: {live_review_url or "not available"}
-- Codex thread: {status.get("thread_url") or "not available"}
+- Host conversation: {status.get("thread_url") or "not available"}
 
 ## Timing
 
@@ -391,7 +391,7 @@ def write_workspace_result_md(
 - Mode: `{status.get("mode") or request.get("mode") or "unknown"}`
 - Project: `{status.get("project_root") or request.get("project_root") or "not configured"}`
 - Exit code: `{status.get("exit_code") if status.get("exit_code") is not None else "n/a"}`
-- Codex thread: {status.get("thread_url") or "not available"}
+- Host conversation: {status.get("thread_url") or "not available"}
 
 ## Result
 
@@ -508,7 +508,7 @@ def write_agent_review_html(session_dir: Path) -> Path:
         ("Status", current_status),
         ("Mode", str(status.get("mode") or request.get("mode") or "unknown")),
         ("Project", project_value),
-        ("Codex Thread", str(thread_info.get("thread_id") or "n/a")),
+        ("Host Conversation", str(thread_info.get("thread_id") or "n/a")),
         ("Started", str(status.get("started_at") or "n/a")),
         ("Finished", str(status.get("finished_at") or "n/a")),
         ("Exit Code", str(status.get("exit_code") if status.get("exit_code") is not None else "n/a")),
@@ -523,7 +523,7 @@ def write_agent_review_html(session_dir: Path) -> Path:
     transcript_html = html.escape(transcript) if transcript else "No transcript available."
     image_grid_html = f'<div class="image-grid">{image_cards}</div>' if image_cards else ""
     thread_link_html = (
-        f'<a href="{html.escape(str(thread_info["thread_url"]))}">Open Codex thread</a>'
+        f'<a href="{html.escape(str(thread_info["thread_url"]))}">Open host conversation</a>'
         if thread_info.get("thread_url")
         else ""
     )
@@ -721,7 +721,7 @@ def run_codex_cli(session_dir: Path, request: dict, status_path: Path) -> None:
         write_status(
             status_path,
             status="skipped",
-            reason="codex CLI is not available",
+            reason="detached runner is not available",
             project_root=None,
             started_at=None,
             exit_code=None,
