@@ -1,3 +1,4 @@
+---
 name: ui-commander
 description: Capture a frontend bug reproduction inside the user's existing Chrome session, or resume from an existing UI Commander session URL, then turn the session into structured artifacts for any local coding agent to inspect. Use this skill when the user wants to demonstrate a bug by clicking through the real app, narrating what should happen, handing the resulting session to an agent for analysis, or simply pasting text like `使用ui commander分析 http://127.0.0.1:47321/sessions/<session-id>/live` or `使用ui commander分析并直接修复 http://127.0.0.1:47321/sessions/<session-id>/live`.
 ---
