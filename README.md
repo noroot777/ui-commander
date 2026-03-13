@@ -82,7 +82,15 @@ For example: "switch whisper to medium" or "use the large model for transcriptio
 
 ## Two Usage Modes
 
-### Mode 1: Start from Agent
+### Mode 1: Record Directly in Browser (Recommended)
+
+With the extension installed, simply click the extension icon or use the keyboard shortcut to record. After recording, a review page opens automatically — click the copy button on that page and paste it to the agent:
+
+```
+use ui commander to analyze http://127.0.0.1:47321/sessions/20260313-143022-a1b2c3/live
+```
+
+### Mode 2: Start from Agent
 
 Trigger the skill in conversation, e.g. `use ui commander, I want to record a bug`:
 
@@ -95,14 +103,6 @@ Trigger the skill in conversation, e.g. `use ui commander, I want to record a bu
 7. Agent automatically reads the session artifacts and continues analysis or fixes in-thread
 
 > You don't need to "write the problem correctly" — just "make it happen."
-
-### Mode 2: Record Directly in Browser (Recommended)
-
-With the extension installed, simply click the extension icon or use the keyboard shortcut to record. After recording, a review page opens automatically — click the copy button on that page and paste it to the agent:
-
-```
-use ui commander to analyze http://127.0.0.1:47321/sessions/20260313-143022-a1b2c3/live
-```
 
 ---
 
