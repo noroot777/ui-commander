@@ -1,5 +1,21 @@
 <div align="center">
 
+# 🎬 UI Commander
+
+**把前端 bug「演」给 AI 看，而不是「写」给它听。**
+
+一个 AI coding agent 的 skill —— 在你的真实 Chrome 中录制 bug 复现，<br/>
+边操作边语音讲解，自动生成结构化会话工件，agent 接过来继续分析甚至直接修复。
+
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Chrome Extension](https://img.shields.io/badge/Chrome-MV3_Extension-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/)
+[![Platform](https://img.shields.io/badge/Platform-macOS-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+</div>
+
+---
+
 ## 安装
 
 将此仓库克隆到你的 skill 目录后，首次使用时 agent 会自动完成环境检查和 Native Host 注册。你唯一需要手动做的是**在 Chrome 中加载扩展**：
@@ -17,22 +33,6 @@
 - openai-whisper（语音转写，`pip install openai-whisper`）
 
 > 如果缺少依赖，agent 在首次执行时会检测并给出提示。
-
----
-
-# 🎬 UI Commander
-
-**把前端 bug「演」给 AI 看，而不是「写」给它听。**
-
-一个 AI coding agent 的 skill —— 在你的真实 Chrome 中录制 bug 复现，<br/>
-边操作边语音讲解，自动生成结构化会话工件，agent 接过来继续分析甚至直接修复。
-
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Chrome Extension](https://img.shields.io/badge/Chrome-MV3_Extension-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/)
-[![Platform](https://img.shields.io/badge/Platform-macOS-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
-</div>
 
 ---
 
@@ -60,7 +60,7 @@ UI Commander 是一个面向 AI coding agent 的 **skill（技能插件）**。
 
 ## 两种使用模式
 
-### 模式一：现场录制（默认）
+### 模式一：Agent中启动
 
 `启动 ui commander，我来录一个bug`唤醒 skill 后：
 
@@ -74,7 +74,7 @@ UI Commander 是一个面向 AI coding agent 的 **skill（技能插件）**。
 
 > 你不需要先把问题「写对」，只需要把问题「做出来」。
 
-### 模式二：打开浏览器直接录制 (推荐)
+### 模式二：浏览器中直接录制 (推荐)
 
 安装好浏览器插件后，直接点击插件，按快捷键录制，结束后会弹出 review 的页面，在页面点击复制按钮贴给 agent 即可：
 
