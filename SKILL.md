@@ -13,11 +13,23 @@ The skill has one job: convert a narrated browser reproduction into structured s
 
 This skill is stateful. On normal triggers, default to direct start instead of running a readiness checklist first. Do not start by telling the user to run commands. Prefer to run local helper scripts yourself and only ask the user for Chrome UI actions. If recording fails to start or stop, diagnose and repair the bridge at that point.
 
+This skill also has a dedicated initialization path. If the user explicitly asks to initialize UI Commander, finish setup after installation, check readiness before first use, or says something equivalent to `初始化 ui commander`, `帮我完成初始化`, or `install this skill and finish setup`, do not enter watch mode first. Run `scripts/initialize.py` and use its result to install what can be installed automatically, then tell the user only the remaining Chrome UI step if the extension still needs to be loaded.
+
 In command examples below, `<python-bin>` means the user's available Python 3 executable for this skill. Usually that is `python3`, but it may also be a venv path or another machine-specific interpreter path.
 
 Default to a fresh recording on every new trigger. Ignore any previously recorded session in the same IDE thread unless the user explicitly asks to reuse or analyze that earlier recording.
 
 ## Workflow
+
+Special case before the normal workflow:
+
+0. If the user is asking for initialization or readiness setup instead of recording, run:
+
+```bash
+<python-bin> <skill-dir>/scripts/initialize.py
+```
+
+Use `--open` when the user is doing first-time setup or needs the Chrome extension page reopened.
 
 1. If the user already provided a UI Commander session URL or session id, resolve that session immediately and continue from its artifacts. Do not ask the user to record again unless they explicitly want a fresh repro.
 2. Otherwise, default the target project to the current workspace. Only override it when the user explicitly wants to send the session to a different repo.
@@ -138,11 +150,11 @@ The extension talks to a local native messaging host. That host is short-lived: 
 ## Step 4: Run a session
 
 Recording is controlled by shortcuts while Chrome is focused:
-- press `Option+S` once to start recording
+- press the platform start shortcut once to start recording: `Option+S` on macOS, `Alt+Shift+S` on Windows or Linux
 - wait for the page cue `UI Commander is recording. Start speaking now.`
 - reproduce the bug in the real app
 - narrate the expected behavior and the actual behavior
-- press `Option+E` to stop and wait for the completion cue
+- press the platform stop shortcut to finish: `Option+E` on macOS, `Alt+Shift+E` on Windows or Linux
 
 Clicking the extension icon should not open a workflow popup anymore. It only serves as an installed indicator and can show a short hint cue on the page with the current shortcuts.
 

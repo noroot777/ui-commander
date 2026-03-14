@@ -42,7 +42,41 @@ UI Commander 是一个面向 AI coding agent 的 **skill（技能插件）**。
 
 ## 安装
 
-将此仓库克隆到你所用平台的 skill 或插件目录后，首次使用时宿主 agent 会自动完成环境检查和 Native Host 注册。你唯一需要手动做的是**在 Chrome 中加载扩展**：
+### 方式 A：让 Agent 帮你安装（推荐）
+
+最简单的方式——在对话中直接告诉 AI agent：
+
+```
+安装 ui-commander skill，从 https://raw.githubusercontent.com/noroot777/ui-commander/master/SKILL.md
+```
+
+Agent 会自动将仓库克隆到当前平台的 skill 目录。
+
+安装完成后，让 agent 做一次初始化：
+
+```
+初始化 UI Commander
+```
+
+Agent 会自动检查依赖、注册 Native Host，并告诉你还有哪些需要手动完成的步骤（比如加载 Chrome 扩展）。
+
+### 方式 B：手动克隆
+
+也可以自己把仓库克隆到 agent 的 skill 目录：
+
+```bash
+git clone https://github.com/noroot777/ui-commander.git <你的skill目录>/ui-commander
+```
+
+然后让 agent 初始化——后续步骤它会自动处理：
+
+```
+初始化 UI Commander
+```
+
+### 加载 Chrome 扩展
+
+这是唯一需要在 Chrome 中手动操作的步骤——初始化时 agent 会提醒你：
 
 1. 打开 `chrome://extensions`
 2. 开启 **开发者模式**
@@ -165,7 +199,19 @@ UI Commander 作为 skill 安装后，你只需要在和 AI agent 的对话中**
 | `我想把 bug 演给你看` |
 | `帮我看一下这个页面的问题` |
 
-### 🔗 传入已有 Session
+### � 初始化 / 就绪检查
+
+刚安装好 skill、或者想在第一次录制前确认环境是否就绪，可以让 agent 做一次初始化。它会自动检查依赖、注册 Native Host，并告诉你还有哪些手动步骤（比如加载 Chrome 扩展）：
+
+| 示例 |
+|------|
+| `初始化 UI Commander` |
+| `帮我安装这个 skill，并完成初始化` |
+| `检查 UI Commander 能不能用` |
+| `initialize UI Commander` |
+| `help me finish setup` |
+
+### �🔗 传入已有 Session
 
 如果你手上已经有一条录制好的 session，直接贴 URL 或 session id，agent 会跳过录制，从已有会话继续：
 

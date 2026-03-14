@@ -42,7 +42,41 @@ Some frontend bugs are nearly impossible to describe in text — they hide in ho
 
 ## Installation
 
-After cloning this repo into your skill directory, the agent will automatically handle environment checks and Native Host registration on first use. The only manual step is **loading the Chrome extension**:
+### Option A: Let the Agent Install It (Recommended)
+
+The easiest way — just tell your AI agent in conversation:
+
+```
+install the ui-commander skill from https://raw.githubusercontent.com/noroot777/ui-commander/master/SKILL.md
+```
+
+The agent will clone the repo into the correct skill directory for your platform automatically.
+
+After installation, ask the agent to initialize:
+
+```
+initialize UI Commander
+```
+
+The agent will check dependencies, register the Native Host, and guide you through any remaining manual steps (e.g., loading the Chrome extension).
+
+### Option B: Manual Clone
+
+Alternatively, clone this repo into your agent's skill directory yourself:
+
+```bash
+git clone https://github.com/noroot777/ui-commander.git <your-skill-directory>/ui-commander
+```
+
+Then ask the agent to initialize — it will handle the rest:
+
+```
+initialize UI Commander
+```
+
+### Loading the Chrome Extension
+
+This is the only step that requires manual action in Chrome — the agent will remind you during initialization:
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
@@ -165,7 +199,19 @@ When your description clearly involves "demonstrating / recording a frontend iss
 | `let me reproduce this web issue` |
 | `录一个前端 bug` |
 
-### 🔗 Pass an Existing Session
+### � Initialize / Readiness Check
+
+If you just installed the skill, or want to verify the environment is ready before the first recording, ask the agent to initialize. It will automatically check dependencies, register the Native Host, and tell you if any manual steps remain (e.g., loading the Chrome extension):
+
+| Example |
+|---------|
+| `initialize UI Commander` |
+| `help me install this skill and finish setup` |
+| `check if UI Commander is ready` |
+| `初始化 UI Commander` |
+| `帮我完成初始化` |
+
+### �🔗 Pass an Existing Session
 
 If you already have a recorded session, paste the URL or session id — the agent skips recording and continues from the existing session:
 
