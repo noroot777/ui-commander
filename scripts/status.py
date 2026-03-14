@@ -7,18 +7,28 @@ import importlib
 import importlib.util
 import json
 import os
+import platform
 import shlex
 import shutil
 import sys
 from pathlib import Path
 
-from install_native_host import HOST_NAME, extension_id, manifest_dir, project_root
+from install_native_host import HOST_NAME, extension_id, manifest_dir, project_root, windows_registry_entries
 from preferences_store import read_preferences
 from python_runtime import resolve_python_executable
 from state_paths import migrate_legacy_state, runtime_state_path
 
 
-CHROME_ROOT = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+def chrome_root() -> Path:
+    system = platform.system()
+    if system == "Windows":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "Google" / "Chrome" / "User Data"
+        return Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data"
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+    return Path.home() / ".config" / "google-chrome"
 PYTHON_BIN = resolve_python_executable(sys.executable)
 RUNTIME_STATE_PATH = runtime_state_path()
 COMMON_COMMAND_PATHS = {
@@ -39,14 +49,44 @@ def host_ready(expected_extension_id: str) -> bool:
         return False
     payload = json.loads(path.read_text())
     origins = payload.get("allowed_origins", [])
-    return f"chrome-extension://{expected_extension_id}/" in origins
+    manifest_ok = f"chrome-extension://{expected_extension_id}/" in origins
+    if not manifest_ok:
+        return False
+    if platform.system() != "Windows":
+        return True
+    registry = windows_registry_entries()
+    target = str(path)
+    return any(value == target for value in registry.values())
+
+
+def native_host_registration(expected_extension_id: str) -> dict[str, object]:
+    path = host_manifest_path()
+    payload = {}
+    origins: list[str] = []
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text())
+            origins = payload.get("allowed_origins", [])
+        except Exception:  # noqa: BLE001
+            payload = {}
+    result: dict[str, object] = {
+        "manifest_path": str(path),
+        "manifest_exists": path.exists(),
+        "manifest_matches_extension": f"chrome-extension://{expected_extension_id}/" in origins,
+    }
+    if platform.system() == "Windows":
+        registry = windows_registry_entries()
+        result["registry_entries"] = registry
+        result["registry_points_to_manifest"] = any(value == str(path) for value in registry.values())
+    return result
 
 
 def chrome_profiles() -> list[Path]:
-    if not CHROME_ROOT.exists():
+    root = chrome_root()
+    if not root.exists():
         return []
     candidates = []
-    for child in CHROME_ROOT.iterdir():
+    for child in root.iterdir():
         if not child.is_dir():
             continue
         if child.name == "Default" or child.name.startswith("Profile "):
@@ -109,7 +149,9 @@ def dependency_status() -> dict[str, object]:
         "transcription_ready": whisper_installed and ffmpeg_available,
         "install_hints": {
             "whisper": None if whisper_installed else whisper_hint,
-            "ffmpeg": None if ffmpeg_available else "brew install ffmpeg",
+            "ffmpeg": None
+            if ffmpeg_available
+            else "choco install ffmpeg" if platform.system() == "Windows" else "brew install ffmpeg",
         },
     }
 
@@ -133,6 +175,7 @@ def main() -> int:
         "native_host_manifest": str(host_manifest_path()),
         "extension_installed": extension_ok,
         "native_host_ready": host_ok,
+        "native_host_registration": native_host_registration(expected_extension_id),
         "chrome_profile": profile,
         "runtime_state": runtime_state,
         "dependencies": dependency_status(),

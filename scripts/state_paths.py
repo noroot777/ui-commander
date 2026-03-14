@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 
@@ -158,3 +160,6 @@ def migrate_legacy_state() -> None:
             if source.exists() and not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
+if os.name == "nt":
+    TEMP_ROOT = Path(tempfile.gettempdir()) / "ui-commander"
+    LEGACY_TEMP_ROOT = Path(tempfile.gettempdir()) / "screen-commander"

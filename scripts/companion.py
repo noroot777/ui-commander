@@ -2261,7 +2261,17 @@ def write_native_message(payload: dict) -> None:
         raise
 
 
+def ensure_native_host_binary_stdio() -> None:
+    if os.name != "nt":
+        return
+    import msvcrt
+
+    msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
+    msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
+
+
 def run_native_host() -> int:
+    ensure_native_host_binary_stdio()
     log_line("native_host ready")
     while True:
         message = read_native_message()

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -19,7 +20,7 @@ OPTIONAL_MODULES = {
 }
 
 OPTIONAL_COMMANDS = {
-    "ffmpeg": "brew install ffmpeg",
+    "ffmpeg": "choco install ffmpeg" if platform.system() == "Windows" else "brew install ffmpeg",
 }
 
 COMMON_COMMAND_PATHS = {
@@ -31,9 +32,22 @@ COMMON_COMMAND_PATHS = {
 
 
 def check_chrome() -> bool:
-    if shutil.which("google-chrome") or shutil.which("chrome") or shutil.which("chromium"):
+    if shutil.which("google-chrome") or shutil.which("chrome") or shutil.which("chromium") or shutil.which("chrome.exe"):
         print("[OK] Chrome executable found on PATH")
         return True
+
+    if platform.system() == "Windows":
+        candidates = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("PROGRAMFILES", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
+        ]
+        for candidate in candidates:
+            if candidate and os.path.exists(candidate):
+                print(f"[OK] Chrome app found at {candidate}")
+                return True
+        print("[MISSING] Google Chrome: install Google Chrome")
+        return False
 
     mac_app = "/Applications/Google Chrome.app"
     if os.path.exists(mac_app):

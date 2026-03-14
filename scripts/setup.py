@@ -20,6 +20,8 @@ PYTHON_BIN = resolve_python_executable(sys.executable)
 
 
 def ensure_executable(path: Path) -> None:
+    if platform.system() == "Windows":
+        return
     path.chmod(path.stat().st_mode | 0o111)
 
 
@@ -30,12 +32,19 @@ def run(script_name: str) -> int:
 
 
 def try_open(path_or_url: str, app: str | None = None) -> None:
-    cmd = ["open"]
-    if app:
-        cmd.extend(["-a", app])
-    cmd.append(path_or_url)
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
+        system = platform.system()
+        if system == "Darwin":
+            cmd = ["open"]
+            if app:
+                cmd.extend(["-a", app])
+            cmd.append(path_or_url)
+            subprocess.run(cmd, check=True, capture_output=True)
+            return
+        if system == "Windows":
+            subprocess.run(["cmd", "/c", "start", "", path_or_url], check=True, capture_output=True)
+            return
+        subprocess.run(["xdg-open", path_or_url], check=True, capture_output=True)
     except Exception:
         pass
 
@@ -69,6 +78,9 @@ def main() -> int:
     print()
     print("Setup complete.")
     print(f"Extension folder: {EXTENSION_DIR}")
+    if platform.system() == "Windows":
+        print("If Chrome still says the native messaging host is missing, run:")
+        print(f"  {PYTHON_BIN} {PROJECT_ROOT / 'scripts' / 'windows_native_host_diagnose.py'}")
     if extension_ok:
         print("Chrome extension already detected. Native host was refreshed without reopening Chrome.")
         print(f"Focus the page, press {start_shortcut} to start, and {stop_shortcut} to stop.")
