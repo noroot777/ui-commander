@@ -11,6 +11,7 @@ let finalizing = false;
 let keyframeTimer = null;
 let keyframeCaptureInFlight = false;
 const KEYFRAME_INTERVAL_MS = 900;
+const OFFSCREEN_STOP_TIMEOUT_MS = 5000;
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 let platformOs = null;
 let preferredLanguage = null;
@@ -274,13 +275,38 @@ async function closeOffscreenDocument() {
   }
 }
 
-async function sendOffscreenCommand(type, payload = {}) {
+async function withTimeout(promise, timeoutMs, label) {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return promise;
+  }
+  let timerId = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timerId = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timerId !== null) {
+      clearTimeout(timerId);
+    }
+  }
+}
+
+async function sendOffscreenCommand(type, payload = {}, options = {}) {
   await ensureOffscreenDocument();
-  const response = await chrome.runtime.sendMessage({
-    target: "offscreen",
-    type,
-    ...payload
-  });
+  const response = await withTimeout(
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type,
+      ...payload
+    }),
+    options.timeoutMs || 0,
+    `Offscreen command ${type}`
+  );
   if (!response?.ok) {
     throw new Error(response?.error || "Offscreen command failed");
   }
@@ -640,7 +666,11 @@ async function stopSession() {
   await persistKeyframe("stop");
 
   try {
-    const audioResult = await sendOffscreenCommand("stop-audio-recording");
+    const audioResult = await sendOffscreenCommand(
+      "stop-audio-recording",
+      {},
+      { timeoutMs: OFFSCREEN_STOP_TIMEOUT_MS }
+    );
     if (audioResult?.audio?.data) {
       await sendNative("write_artifact", {
         session_id: sessionId,

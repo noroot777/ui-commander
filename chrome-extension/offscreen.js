@@ -4,6 +4,7 @@ let chunks = [];
 let totalBytes = 0;
 let recorderMimeType = "";
 let lastRecorderError = null;
+const STOP_TIMEOUT_MS = 4000;
 const keepAlivePort = chrome.runtime.connect({ name: "ui-commander-offscreen-keepalive" });
 
 function pickMimeType() {
@@ -80,6 +81,17 @@ async function blobToBase64(blob) {
   });
 }
 
+function resetRecorderState() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+  }
+  mediaRecorder = null;
+  mediaStream = null;
+  chunks = [];
+  totalBytes = 0;
+  recorderMimeType = "";
+}
+
 async function stopAudioRecording() {
   if (!mediaRecorder) {
     return { ok: true, audio: null };
@@ -106,26 +118,32 @@ async function stopAudioRecording() {
     recorder.onstop = resolve;
   });
 
-  if (recorder.state === "recording") {
+  let timedOut = false;
+  if (recorder.state === "recording" || recorder.state === "paused") {
     try {
       recorder.requestData();
     } catch (_error) {
       // Some implementations do not support requestData in this state.
     }
     recorder.stop();
+    const stopOutcome = await Promise.race([
+      stopped.then(() => "stopped"),
+      new Promise((resolve) => {
+        setTimeout(() => resolve("timed_out"), STOP_TIMEOUT_MS);
+      })
+    ]);
+    timedOut = stopOutcome === "timed_out";
+  } else if (recorder.state !== "inactive") {
+    await stopped;
   }
-
-  await stopped;
+  if (timedOut) {
+    lastRecorderError = lastRecorderError || "MediaRecorder stop timed out";
+  }
 
   const blob = new Blob(chunks, { type: currentMimeType || "audio/webm" });
   const base64 = blob.size > 0 ? await blobToBase64(blob) : null;
 
-  stream.getTracks().forEach((track) => track.stop());
-  mediaRecorder = null;
-  mediaStream = null;
-  chunks = [];
-  totalBytes = 0;
-  recorderMimeType = "";
+  resetRecorderState();
   const recorderError = lastRecorderError;
   lastRecorderError = null;
 
@@ -133,6 +151,7 @@ async function stopAudioRecording() {
     ok: true,
     chunkCount: finalChunkCount,
     byteCount: finalByteCount,
+    timedOut,
     recorderError,
     audio: base64
       ? {

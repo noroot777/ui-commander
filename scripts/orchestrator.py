@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -42,7 +44,12 @@ def write_text(path: Path, content: str) -> None:
 
 def try_open_local_file(path: Path) -> bool:
     try:
-        subprocess.run(["open", str(path)], check=False, capture_output=True)
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(path)], check=False, capture_output=True)
+        elif os.name == "nt":
+            os.startfile(str(path))
+        else:
+            subprocess.run(["xdg-open", str(path)], check=False, capture_output=True)
         return True
     except Exception:  # noqa: BLE001
         return False

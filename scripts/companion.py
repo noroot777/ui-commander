@@ -1028,7 +1028,12 @@ def build_referential_mentions(segments: list[dict], focus_regions: list[dict]) 
 
 def try_open_local_file(path: Path) -> bool:
     try:
-        subprocess.run(["open", str(path)], check=False, capture_output=True)
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(path)], check=False, capture_output=True)
+        elif os.name == "nt":
+            os.startfile(str(path))
+        else:
+            subprocess.run(["xdg-open", str(path)], check=False, capture_output=True)
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -1036,7 +1041,12 @@ def try_open_local_file(path: Path) -> bool:
 
 def try_open_url(url: str) -> bool:
     try:
-        subprocess.run(["open", url], check=False, capture_output=True)
+        if sys.platform == "darwin":
+            subprocess.run(["open", url], check=False, capture_output=True)
+        elif os.name == "nt":
+            os.startfile(url)
+        else:
+            subprocess.run(["xdg-open", url], check=False, capture_output=True)
         return True
     except Exception:  # noqa: BLE001
         return False
