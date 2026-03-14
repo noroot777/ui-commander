@@ -7,6 +7,7 @@ import json
 import platform
 import struct
 import subprocess
+import time
 from pathlib import Path
 
 from install_native_host import HOST_NAME, host_entry_path, manifest_dir, windows_registry_entries
@@ -17,6 +18,24 @@ def tail_log_lines(path: Path, limit: int = 40) -> list[str]:
     if not path.exists():
         return []
     return path.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]
+
+
+def send_native_message(process: subprocess.Popen[bytes], message: dict[str, object]) -> dict[str, object]:
+    assert process.stdin is not None
+    assert process.stdout is not None
+    encoded = json.dumps(message).encode("utf-8")
+    process.stdin.write(struct.pack("<I", len(encoded)))
+    process.stdin.write(encoded)
+    process.stdin.flush()
+    raw_length = process.stdout.read(4)
+    if len(raw_length) != 4:
+        raise RuntimeError("no valid native message header received")
+    message_length = struct.unpack("<I", raw_length)[0]
+    raw_body = process.stdout.read(message_length)
+    return {
+        "raw_response": raw_body.decode("utf-8", errors="replace"),
+        "response": json.loads(raw_body.decode("utf-8", errors="replace")),
+    }
 
 
 def smoke_test_host() -> dict[str, object]:
@@ -34,29 +53,28 @@ def smoke_test_host() -> dict[str, object]:
     except Exception as exc:  # noqa: BLE001
         return {"supported": True, "ok": False, "launch_error": str(exc)}
 
-    request = json.dumps({"command": "get_preferences", "payload": {}}).encode("utf-8")
     response_payload: dict[str, object] = {"supported": True}
     try:
-        assert process.stdin is not None
-        assert process.stdout is not None
-        process.stdin.write(struct.pack("<I", len(request)))
-        process.stdin.write(request)
-        process.stdin.flush()
-
-        raw_length = process.stdout.read(4)
-        if len(raw_length) != 4:
-            response_payload["ok"] = False
-            response_payload["error"] = "no valid native message header received"
-        else:
-            message_length = struct.unpack("<I", raw_length)[0]
-            raw_body = process.stdout.read(message_length)
-            response_payload["raw_response"] = raw_body.decode("utf-8", errors="replace")
-            try:
-                response_payload["response"] = json.loads(response_payload["raw_response"])
-                response_payload["ok"] = True
-            except Exception as exc:  # noqa: BLE001
-                response_payload["ok"] = False
-                response_payload["error"] = f"invalid json response: {exc}"
+        preferences_result = send_native_message(process, {"command": "get_preferences", "payload": {}})
+        start_session_result = send_native_message(
+            process,
+            {
+                "command": "start_session",
+                "payload": {
+                    "session_id": f"diagnose-{int(time.time())}",
+                    "url": "http://127.0.0.1/ui-commander-diagnose",
+                    "title": "UI Commander Diagnose",
+                    "extension_version": "diagnose",
+                },
+            },
+        )
+        response_payload["steps"] = {
+            "get_preferences": preferences_result,
+            "start_session": start_session_result,
+        }
+        response_payload["raw_response"] = preferences_result["raw_response"]
+        response_payload["response"] = preferences_result["response"]
+        response_payload["ok"] = True
     except Exception as exc:  # noqa: BLE001
         response_payload["ok"] = False
         response_payload["error"] = str(exc)

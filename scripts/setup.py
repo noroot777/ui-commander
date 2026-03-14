@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -42,6 +44,17 @@ def try_open(path_or_url: str, app: str | None = None) -> None:
             subprocess.run(cmd, check=True, capture_output=True)
             return
         if system == "Windows":
+            chrome_candidates = [
+                shutil.which("chrome"),
+                shutil.which("chrome.exe"),
+                str(Path(os.environ.get("PROGRAMFILES", "")) / "Google" / "Chrome" / "Application" / "chrome.exe"),
+                str(Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Google" / "Chrome" / "Application" / "chrome.exe"),
+            ]
+            if path_or_url.startswith("chrome://"):
+                for candidate in chrome_candidates:
+                    if candidate and Path(candidate).exists():
+                        subprocess.run([candidate, path_or_url], check=True, capture_output=True)
+                        return
             subprocess.run(["cmd", "/c", "start", "", path_or_url], check=True, capture_output=True)
             return
         subprocess.run(["xdg-open", path_or_url], check=True, capture_output=True)
