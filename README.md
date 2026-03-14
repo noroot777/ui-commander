@@ -58,7 +58,7 @@ After installation, ask the agent to initialize:
 initialize UI Commander
 ```
 
-The agent will check dependencies, register the Native Host, and guide you through any remaining manual steps (e.g., loading the Chrome extension).
+The agent will check dependencies, register the Native Host, pause to ask for your preferred recording language (e.g., Chinese, English, Japanese), and then guide you through any remaining manual steps (e.g., loading the Chrome extension).
 
 ### Option B: Manual Clone
 

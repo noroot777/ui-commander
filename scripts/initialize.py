@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from preferences_store import update_preferences
 from python_runtime import resolve_python_executable
 
 
@@ -159,8 +160,18 @@ def build_next_steps(after: dict[str, object]) -> list[str]:
         if not dependencies.get("ffmpeg_available"):
             next_steps.append(f"Audio processing still needs ffmpeg. Hint: {hints.get('ffmpeg')}")
     if after.get("needs_language_setup"):
-        next_steps.append("Set a preferred transcription language before your first narrated recording.")
+        next_steps.append("Ask the user for their usual narration language, then save it before the first narrated recording.")
     return next_steps
+
+
+def language_prompt(after: dict[str, object]) -> dict[str, str] | None:
+    if not after.get("needs_language_setup"):
+        return None
+    return {
+        "question": "What language do you usually use when narrating frontend bugs?",
+        "hint": "Examples: zh, en, ja",
+        "field": "preferred_language",
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -168,6 +179,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--open", action="store_true", help="open Chrome extension setup UI when needed")
     parser.add_argument("--no-open", action="store_true", help="avoid opening Chrome during initialization")
     parser.add_argument("--skip-deps", action="store_true", help="skip installing optional transcription dependencies")
+    parser.add_argument("--language", help="preferred narration language tag, such as zh, en, or ja")
     return parser.parse_args()
 
 
@@ -175,6 +187,26 @@ def main() -> int:
     args = parse_args()
     before = load_status()
     actions: list[dict[str, object]] = []
+
+    if args.language:
+        try:
+            preferences = update_preferences(preferred_language=args.language)
+            actions.append(
+                {
+                    "label": "set_preferred_language",
+                    "ok": True,
+                    "language": preferences.get("transcription", {}).get("preferred_language"),
+                }
+            )
+        except ValueError as exc:
+            actions.append(
+                {
+                    "label": "set_preferred_language",
+                    "ok": False,
+                    "error": str(exc),
+                    "language": args.language,
+                }
+            )
 
     dependencies = before.get("dependencies", {})
     if isinstance(dependencies, dict) and not args.skip_deps:
@@ -191,6 +223,7 @@ def main() -> int:
     after = load_status()
     recording_ready = str(after.get("state") or "") == "ready_to_record"
     after_dependencies = after.get("dependencies", {})
+    language_configured = not bool(after.get("needs_language_setup"))
     transcription_ready = bool(
         isinstance(after_dependencies, dict) and after_dependencies.get("transcription_ready")
     )
@@ -198,10 +231,12 @@ def main() -> int:
         "ok": recording_ready,
         "recording_ready": recording_ready,
         "transcription_ready": transcription_ready,
-        "fully_initialized": recording_ready and transcription_ready,
+        "language_configured": language_configured,
+        "fully_initialized": recording_ready and transcription_ready and language_configured,
         "before": before,
         "actions": actions,
         "after": after,
+        "language_prompt": language_prompt(after),
         "next_steps": build_next_steps(after),
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))

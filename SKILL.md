@@ -15,6 +15,9 @@ This skill is stateful. On normal triggers, default to direct start instead of r
 
 This skill also has a dedicated initialization path. If the user explicitly asks to initialize UI Commander, finish setup after installation, check readiness before first use, or says something equivalent to `初始化 ui commander`, `帮我完成初始化`, or `install this skill and finish setup`, do not enter watch mode first. Run `scripts/initialize.py` and use its result to install what can be installed automatically, then tell the user only the remaining Chrome UI step if the extension still needs to be loaded.
 
+During initialization, if no preferred narration language is saved yet, ask the user once which language they usually use when describing bugs, then write it during initialization instead of deferring it to a later recording.
+When `scripts/initialize.py` reports `language_prompt`, pause the initialization flow, ask that exact question to the user, then rerun initialization with `--language <tag>`.
+
 In command examples below, `<python-bin>` means the user's available Python 3 executable for this skill. Usually that is `python3`, but it may also be a venv path or another machine-specific interpreter path.
 
 Default to a fresh recording on every new trigger. Ignore any previously recorded session in the same IDE thread unless the user explicitly asks to reuse or analyze that earlier recording.
@@ -30,6 +33,7 @@ Special case before the normal workflow:
 ```
 
 Use `--open` when the user is doing first-time setup or needs the Chrome extension page reopened.
+If the user gives a language such as `zh`, `en`, or `ja`, pass it with `--language <tag>`.
 
 1. If the user already provided a UI Commander session URL or session id, resolve that session immediately and continue from its artifacts. Do not ask the user to record again unless they explicitly want a fresh repro.
 2. Otherwise, default the target project to the current workspace. Only override it when the user explicitly wants to send the session to a different repo.
