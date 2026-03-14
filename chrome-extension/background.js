@@ -131,7 +131,7 @@ async function shortcutLabels() {
   if (platformOs === "mac") {
     return { start: "Option+S", stop: "Option+E" };
   }
-  return { start: "Alt+S", stop: "Alt+E" };
+  return { start: "Alt+Shift+S", stop: "Alt+Shift+E" };
 }
 
 async function ensurePreferredLanguage() {

@@ -25,8 +25,8 @@ Default to a fresh recording on every new trigger. Ignore any previously recorde
 4. Do not ask about transcription models by default. Only change models when the current transcript quality is poor or the user explicitly asks. When the user chooses a stronger model, persist that model so future sessions keep using it afterwards.
 5. Enter blocking watch mode before the user records. This is the default and only primary interaction mode for this skill.
 6. When watch mode starts, bind the current workspace as the active project root for the upcoming session.
-7. Once recording can begin, send one short bold reminder in the IDE chat. Keep it visually prominent and concise, and always adapt the shortcuts to the user's platform. Example on macOS: `**现在请切到 Chrome，按 Option+S 开始，按 Option+E 结束。**` Example on Windows or Linux: `**现在请切到 Chrome，按 Alt+S 开始，按 Alt+E 结束。**`
-8. Tell the user to focus the target Chrome tab, then use the platform-appropriate shortcuts to record: `Option+S` and `Option+E` on macOS, `Alt+S` and `Alt+E` on Windows or Linux.
+7. Once recording can begin, send one short bold reminder in the IDE chat. Keep it visually prominent and concise, and always adapt the shortcuts to the user's platform. Example on macOS: `**现在请切到 Chrome，按 Option+S 开始，按 Option+E 结束。**` Example on Windows or Linux: `**现在请切到 Chrome，按 Alt+Shift+S 开始，按 Alt+Shift+E 结束。**`
+8. Tell the user to focus the target Chrome tab, then use the platform-appropriate shortcuts to record: `Option+S` and `Option+E` on macOS, `Alt+Shift+S` and `Alt+Shift+E` on Windows or Linux.
 9. If start or stop fails, then run local diagnosis and repair: use `scripts/status.py` to inspect readiness and `scripts/setup.py` to repair the bridge when needed.
 10. Wait only for the next newly created finalized session in the current conversation. Do not reuse an older session just because its files changed or the conversation was reopened.
 11. Use the current conversation to analyze and, when appropriate, apply code changes. Do not rely on a detached background task or any platform-specific CLI runner as the primary path.

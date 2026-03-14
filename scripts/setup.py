@@ -73,8 +73,8 @@ def main() -> int:
     args = parse_args()
     chrome_extension_id = extension_id()
     extension_ok, _profile = extension_installed(chrome_extension_id)
-    start_shortcut = "Option+S" if platform.system() == "Darwin" else "Alt+S"
-    stop_shortcut = "Option+E" if platform.system() == "Darwin" else "Alt+E"
+    start_shortcut = "Option+S" if platform.system() == "Darwin" else "Alt+Shift+S"
+    stop_shortcut = "Option+E" if platform.system() == "Darwin" else "Alt+Shift+E"
     ensure_executable(PROJECT_ROOT / "scripts" / "native_host_entry.sh")
 
     if run("check_deps.py") != 0:

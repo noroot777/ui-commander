@@ -95,11 +95,11 @@ UI Commander 是一个面向 AI coding agent 的 **skill（技能插件）**。
 `启动 ui commander，我来录一个bug`唤醒 skill 后：
 
 1. Agent 自动进入等待模式，准备接收新录制
-2. 你会看到一条粗体提示：**现在请切到 Chrome，按 Option+S 开始，按 Option+E 结束。**
+2. 你会看到一条带平台区分的粗体提示：**macOS 用 Option+S / Option+E，Windows 和 Linux 用 Alt+Shift+S / Alt+Shift+E。**
 3. 切到 Chrome，聚焦目标页面
-4. 按 **`Option+S`** 开始录制（页面会出现录制提示）
+4. 按你所在平台的开始快捷键：macOS 用 **`Option+S`**，Windows / Linux 用 **`Alt+Shift+S`**
 5. 在真实页面复现 bug，同时**语音讲解**期望行为和实际问题
-6. 按 **`Option+E`** 结束录制
+6. 按你所在平台的结束快捷键：macOS 用 **`Option+E`**，Windows / Linux 用 **`Alt+Shift+E`**
 7. Agent 自动读取工件，在当前对话中继续分析和修复
 
 > 你不需要先把问题「写对」，只需要把问题「做出来」。
@@ -112,9 +112,9 @@ UI Commander 是一个面向 AI coding agent 的 **skill（技能插件）**。
 你在 Chrome 中操作复现          UI Commander 在后台捕获
 ┌─────────────────────┐        ┌──────────────────────────┐
 │  打开真实页面        │        │  交互事件 + 指针轨迹      │
-│  Option+S 开始录制   │───────▶│  周期性关键帧截图         │
+│  平台开始快捷键      │───────▶│  周期性关键帧截图         │
 │  边操作边语音讲解    │        │  麦克风录音 → Whisper 转写 │
-│  Option+E 结束录制   │        │  Console / Network 日志   │
+│  平台结束快捷键      │        │  Console / Network 日志   │
 └─────────────────────┘        └──────────┬───────────────┘
                                           │
                                           ▼

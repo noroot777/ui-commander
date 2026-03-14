@@ -95,11 +95,11 @@ use ui commander to analyze http://127.0.0.1:47321/sessions/20260313-143022-a1b2
 Trigger the skill in conversation, e.g. `use ui commander, I want to record a bug`:
 
 1. Agent enters watch mode, waiting for a new recording
-2. You'll see a bold prompt: **Switch to Chrome now. Press Option+S to start, Option+E to stop.**
+2. You'll see a bold prompt with platform-aware shortcuts: **macOS uses Option+S / Option+E, Windows and Linux use Alt+Shift+S / Alt+Shift+E.**
 3. Switch to Chrome and focus the target page
-4. Press **`Option+S`** to start recording (an on-page cue will appear)
+4. Press the start shortcut for your platform: **`Option+S`** on macOS, **`Alt+Shift+S`** on Windows or Linux
 5. Reproduce the bug on the real page while **narrating** expected vs. actual behavior
-6. Press **`Option+E`** to stop recording
+6. Press the stop shortcut for your platform: **`Option+E`** on macOS, **`Alt+Shift+E`** on Windows or Linux
 7. Agent automatically reads the session artifacts and continues analysis or fixes in-thread
 
 > You don't need to "write the problem correctly" — just "make it happen."
@@ -112,9 +112,9 @@ Trigger the skill in conversation, e.g. `use ui commander, I want to record a bu
 You reproduce in Chrome              UI Commander captures in background
 ┌─────────────────────┐        ┌──────────────────────────┐
 │  Open the real page  │        │  Interaction events       │
-│  Option+S to start   │───────▶│  + pointer trajectories   │
+│  Start shortcut      │───────▶│  + pointer trajectories   │
 │  Narrate as you go   │        │  Periodic keyframe shots  │
-│  Option+E to stop    │        │  Mic → Whisper transcript │
+│  Stop shortcut       │        │  Mic → Whisper transcript │
 └─────────────────────┘        │  Console / Network logs   │
                                └──────────┬───────────────┘
                                           │
