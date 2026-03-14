@@ -4,6 +4,7 @@ setlocal ENABLEEXTENSIONS
 set "SCRIPT_DIR=%~dp0"
 set "STATE_ROOT=%USERPROFILE%\.ui-commander"
 set "LOG_FILE=%STATE_ROOT%\native-host.log"
+set "STDERR_LOG_FILE=%STATE_ROOT%\native-host-stderr.log"
 set "PYTHON_HINT_FILE=%STATE_ROOT%\python-bin"
 
 if not exist "%STATE_ROOT%" mkdir "%STATE_ROOT%"
@@ -13,8 +14,8 @@ set "PYTHON_HINT="
 if exist "%PYTHON_HINT_FILE%" set /p PYTHON_HINT=<"%PYTHON_HINT_FILE%"
 
 if /I not "%PYTHON_HINT%"=="" (
-  echo %PYTHON_HINT% | find /I "Microsoft\WindowsApps\python" >nul
-  if errorlevel 1 (
+  set "FILTERED_HINT=%PYTHON_HINT:Microsoft\WindowsApps\python=%"
+  if /I "%FILTERED_HINT%"=="%PYTHON_HINT%" (
     if exist "%PYTHON_HINT%" set "PYTHON_BIN=%PYTHON_HINT%"
   )
 )
@@ -31,8 +32,9 @@ if not defined PYTHON_BIN (
   for %%P in (python.exe python3.exe) do (
     if not defined PYTHON_BIN (
       for /f "delims=" %%I in ('where %%P 2^>nul') do (
-        echo %%I | find /I "Microsoft\WindowsApps\python" >nul
-        if errorlevel 1 if not defined PYTHON_BIN set "PYTHON_BIN=%%I"
+        set "FILTERED_CANDIDATE=%%I"
+        call set "FILTERED_CANDIDATE=%%FILTERED_CANDIDATE:Microsoft\WindowsApps\python=%%"
+        call if /I "%%FILTERED_CANDIDATE%%"=="%%I" if not defined PYTHON_BIN set "PYTHON_BIN=%%I"
       )
     )
   )
@@ -47,4 +49,4 @@ if not defined PYTHON_BIN (
 >>"%LOG_FILE%" echo [%date% %time%] cwd=%CD%
 >>"%LOG_FILE%" echo [%date% %time%] python=%PYTHON_BIN%
 
-"%PYTHON_BIN%" "%SCRIPT_DIR%companion.py" native-host 2>>"%LOG_FILE%"
+"%PYTHON_BIN%" "%SCRIPT_DIR%companion.py" native-host 2>>"%STDERR_LOG_FILE%"

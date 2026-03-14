@@ -85,6 +85,7 @@ def smoke_test_host() -> dict[str, object]:
 
 def main() -> int:
     log_path = native_host_log_path()
+    stderr_log_path = log_path.with_name("native-host-stderr.log")
     python_hint_value = None
     if python_bin_path().exists():
         try:
@@ -102,6 +103,8 @@ def main() -> int:
         "python_hint_value": python_hint_value,
         "native_host_log_path": str(log_path),
         "native_host_log_tail": tail_log_lines(log_path),
+        "native_host_stderr_log_path": str(stderr_log_path),
+        "native_host_stderr_log_tail": tail_log_lines(stderr_log_path),
     }
     manifest_path = Path(payload["manifest_path"])
     payload["manifest_exists"] = manifest_path.exists()
