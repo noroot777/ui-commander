@@ -9,18 +9,30 @@ set "PYTHON_HINT_FILE=%STATE_ROOT%\python-bin"
 if not exist "%STATE_ROOT%" mkdir "%STATE_ROOT%"
 
 set "PYTHON_BIN="
+set "PYTHON_HINT="
+if exist "%PYTHON_HINT_FILE%" set /p PYTHON_HINT=<"%PYTHON_HINT_FILE%"
+
+if /I not "%PYTHON_HINT%"=="" (
+  echo %PYTHON_HINT% | find /I "Microsoft\WindowsApps\python" >nul
+  if errorlevel 1 (
+    if exist "%PYTHON_HINT%" set "PYTHON_BIN=%PYTHON_HINT%"
+  )
+)
+
 if defined UI_COMMANDER_PYTHON if exist "%UI_COMMANDER_PYTHON%" set "PYTHON_BIN=%UI_COMMANDER_PYTHON%"
 
-if not defined PYTHON_BIN if exist "%PYTHON_HINT_FILE%" (
-  set /p PYTHON_FROM_FILE=<"%PYTHON_HINT_FILE%"
-  if exist "%PYTHON_FROM_FILE%" set "PYTHON_BIN=%PYTHON_FROM_FILE%"
+if not defined PYTHON_BIN (
+  for /f "usebackq delims=" %%I in (`py -3 -c "import sys; print(sys.executable)" 2^>nul`) do (
+    if not defined PYTHON_BIN set "PYTHON_BIN=%%I"
+  )
 )
 
 if not defined PYTHON_BIN (
   for %%P in (python.exe python3.exe) do (
     if not defined PYTHON_BIN (
       for /f "delims=" %%I in ('where %%P 2^>nul') do (
-        if not defined PYTHON_BIN set "PYTHON_BIN=%%I"
+        echo %%I | find /I "Microsoft\WindowsApps\python" >nul
+        if errorlevel 1 if not defined PYTHON_BIN set "PYTHON_BIN=%%I"
       )
     )
   )

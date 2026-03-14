@@ -85,6 +85,12 @@ def smoke_test_host() -> dict[str, object]:
 
 def main() -> int:
     log_path = native_host_log_path()
+    python_hint_value = None
+    if python_bin_path().exists():
+        try:
+            python_hint_value = python_bin_path().read_text(encoding="utf-8").strip() or None
+        except Exception as exc:  # noqa: BLE001
+            python_hint_value = f"<error: {exc}>"
     payload: dict[str, object] = {
         "platform": platform.system(),
         "host_name": HOST_NAME,
@@ -93,6 +99,7 @@ def main() -> int:
         "host_entry_path": str(host_entry_path()),
         "python_hint_path": str(python_bin_path()),
         "python_hint_exists": python_bin_path().exists(),
+        "python_hint_value": python_hint_value,
         "native_host_log_path": str(log_path),
         "native_host_log_tail": tail_log_lines(log_path),
     }
