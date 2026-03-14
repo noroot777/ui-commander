@@ -9,7 +9,7 @@ narrate what's expected vs. what's broken, and let the agent analyze or fix it d
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Chrome Extension](https://img.shields.io/badge/Chrome-MV3_Extension-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/)
-[![Platform](https://img.shields.io/badge/Platform-macOS-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-000000?logo=apple&logoColor=white)](https://github.com/noroot777/ui-commander)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **English** | **[中文](README.zh-CN.md)**
@@ -84,10 +84,10 @@ This is the only step that requires manual action in Chrome — the agent will r
 
 ### Requirements
 
-- macOS (current version optimized for macOS)
+- macOS / Windows
 - Python 3.10+
 - Google Chrome
-- ffmpeg (audio processing, `brew install ffmpeg`)
+- ffmpeg (audio processing: macOS `brew install ffmpeg`, Windows `choco install ffmpeg` or download from [ffmpeg.org](https://ffmpeg.org/download.html))
 - openai-whisper (voice transcription, `pip install openai-whisper`)
 
 > If any dependency is missing, the agent will detect and prompt on first run.

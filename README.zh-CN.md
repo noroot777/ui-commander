@@ -9,7 +9,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Chrome Extension](https://img.shields.io/badge/Chrome-MV3_Extension-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/mv3/)
-[![Platform](https://img.shields.io/badge/Platform-macOS-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-000000?logo=apple&logoColor=white)](https://github.com/noroot777/ui-commander)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **[English](README.md)** | **中文**
@@ -84,10 +84,10 @@ git clone https://github.com/noroot777/ui-commander.git <你的skill目录>/ui-c
 
 ### 运行环境
 
-- macOS（当前版本针对 macOS 优化）
+- macOS / Windows
 - Python 3.10+
 - Google Chrome
-- ffmpeg（用于音频处理，`brew install ffmpeg`）
+- ffmpeg（用于音频处理：macOS `brew install ffmpeg`，Windows `choco install ffmpeg` 或从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载）
 - openai-whisper（语音转写，`pip install openai-whisper`）
 
 > 如果缺少依赖，agent 在首次执行时会检测并给出提示。
