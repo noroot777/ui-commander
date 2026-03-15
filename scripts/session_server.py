@@ -172,6 +172,37 @@ def build_snapshot(session_id: str, server_base_url: str) -> dict[str, object]:
     }
 
 
+def update_transcript(session_id: str, transcript: str, server_base_url: str) -> dict[str, object]:
+    path = session_dir(session_id)
+    cleaned = transcript.strip()
+    transcript_path = path / "transcript.txt"
+    if cleaned:
+        transcript_path.write_text(cleaned + "\n", encoding="utf-8")
+    elif transcript_path.exists():
+        transcript_path.unlink()
+
+    summary = read_json(path / "summary.json", {})
+    if not isinstance(summary, dict):
+        summary = {}
+    review = summary.get("review", {})
+    if not isinstance(review, dict):
+        review = {}
+    review["transcript"] = cleaned
+    summary["review"] = review
+    summary["has_transcript"] = bool(cleaned)
+    summary["transcript_status"] = "provided" if cleaned else "not_requested"
+    write_json(path / "summary.json", summary)
+
+    try:
+        from companion import generate_review_html  # Local import keeps server startup light.
+
+        generate_review_html(path, summary)
+    except Exception:  # noqa: BLE001
+        pass
+
+    return build_snapshot(session_id, server_base_url)
+
+
 def live_page_html(session_id: str) -> str:
     session_id_json = json.dumps(session_id)
     session_id_html = html.escape(session_id)
@@ -373,6 +404,51 @@ def live_page_html(session_id: str) -> str:
       font-size: 13px;
       font-weight: 700;
     }}
+    .transcript-editor {{
+      width: 100%;
+      min-height: 220px;
+      border: 1px solid rgba(22, 95, 70, 0.18);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--ink);
+      padding: 18px;
+      font: inherit;
+      font-size: 15px;
+      line-height: 1.7;
+      resize: vertical;
+      box-shadow: inset 0 1px 2px rgba(24, 35, 30, 0.04);
+    }}
+    .transcript-editor:focus {{
+      outline: 2px solid rgba(22, 95, 70, 0.2);
+      border-color: rgba(22, 95, 70, 0.34);
+    }}
+    .transcript-toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-top: 14px;
+    }}
+    .transcript-save-button {{
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #12684c, #1b8a64);
+      color: #fffdf8;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      padding: 11px 16px;
+      cursor: pointer;
+    }}
+    .transcript-save-button[disabled] {{
+      cursor: wait;
+      opacity: 0.72;
+    }}
+    .transcript-save-status {{
+      color: var(--muted);
+      font-size: 13px;
+    }}
     .warning-banner {{
       border-radius: 18px;
       border: 1px solid rgba(185, 95, 35, 0.26);
@@ -560,7 +636,11 @@ def live_page_html(session_id: str) -> str:
           <h2>识别结果</h2>
           <div class="section-kicker">旁白 + 轨迹热点</div>
         </div>
-        <pre id="transcript">Loading…</pre>
+        <textarea id="transcript-editor" class="transcript-editor" placeholder="还没有可用转写。你可以直接在这里补充或修正。">Loading…</textarea>
+        <div class="transcript-toolbar">
+          <button id="save-transcript-button" class="transcript-save-button" type="button">保存识别结果</button>
+          <div id="transcript-save-status" class="transcript-save-status"></div>
+        </div>
         <div id="image-grid" class="image-grid"></div>
       </section>
       <section>
@@ -578,7 +658,9 @@ def live_page_html(session_id: str) -> str:
     const sessionId = {session_id_json};
     const metaEl = document.getElementById("meta");
     const linksEl = document.getElementById("links");
-    const transcriptEl = document.getElementById("transcript");
+    const transcriptEditorEl = document.getElementById("transcript-editor");
+    const saveTranscriptButtonEl = document.getElementById("save-transcript-button");
+    const transcriptSaveStatusEl = document.getElementById("transcript-save-status");
     const imageGridEl = document.getElementById("image-grid");
     const agentResultEl = document.getElementById("agent-result");
     const agentEventsEl = document.getElementById("agent-events");
@@ -588,6 +670,9 @@ def live_page_html(session_id: str) -> str:
     const copyFixButtonEl = document.getElementById("copy-fix-button");
     const copyStatusEl = document.getElementById("copy-status");
     const copyPreviewTextEl = document.getElementById("copy-preview-text");
+    let transcriptDirty = false;
+    let transcriptSaving = false;
+    let lastTranscriptValue = "";
 
     function promptWithUrl(mode) {{
       const prefix = mode === "fix" ? {copy_fix_prefix} : {copy_analyze_prefix};
@@ -710,6 +795,48 @@ def live_page_html(session_id: str) -> str:
         : "<li>No agent events yet.</li>";
     }}
 
+    function updateTranscriptControls() {{
+      saveTranscriptButtonEl.disabled = transcriptSaving || !transcriptDirty;
+    }}
+
+    function setTranscriptSaveStatus(text, tone = "muted") {{
+      transcriptSaveStatusEl.textContent = text;
+      transcriptSaveStatusEl.style.color = tone === "error"
+        ? "var(--bad)"
+        : tone === "success"
+          ? "var(--accent)"
+          : "var(--muted)";
+    }}
+
+    async function saveTranscript() {{
+      transcriptSaving = true;
+      updateTranscriptControls();
+      setTranscriptSaveStatus("正在保存…");
+      try {{
+        const response = await fetch(`/api/sessions/${{encodeURIComponent(sessionId)}}/transcript`, {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ transcript: transcriptEditorEl.value }})
+        }});
+        if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
+        const payload = await response.json();
+        const snapshot = payload.snapshot || {{}};
+        lastTranscriptValue = snapshot.review?.transcript || transcriptEditorEl.value.trim();
+        transcriptEditorEl.value = lastTranscriptValue;
+        transcriptDirty = false;
+        renderMeta(snapshot);
+        renderLinks(snapshot);
+        renderImages(snapshot);
+        renderAgent(snapshot);
+        setTranscriptSaveStatus("已保存，你的修改会用于后续 review。", "success");
+      }} catch (error) {{
+        setTranscriptSaveStatus(`保存失败：${{error.message}}`, "error");
+      }} finally {{
+        transcriptSaving = false;
+        updateTranscriptControls();
+      }}
+    }}
+
     async function refresh() {{
       try {{
         const response = await fetch(`/api/sessions/${{encodeURIComponent(sessionId)}}/snapshot`, {{ cache: "no-store" }});
@@ -719,7 +846,12 @@ def live_page_html(session_id: str) -> str:
         renderMeta(snapshot);
         renderLinks(snapshot);
         renderImages(snapshot);
-        transcriptEl.textContent = snapshot.review?.transcript || "还没有可用转写。";
+        const latestTranscript = snapshot.review?.transcript || "";
+        if (!transcriptDirty && !transcriptSaving) {{
+          lastTranscriptValue = latestTranscript;
+          transcriptEditorEl.value = latestTranscript;
+          setTranscriptSaveStatus(latestTranscript ? "" : "还没有可用转写。你可以直接在这里补充或修正。");
+        }}
         renderAgent(snapshot);
       }} catch (error) {{
         agentResultEl.textContent = `Live review 暂时不可用：${{error.message}}`;
@@ -731,6 +863,21 @@ def live_page_html(session_id: str) -> str:
     copyPreviewTextEl.textContent = promptWithUrl("analyze");
     copyAnalyzeButtonEl.addEventListener("click", () => copyPromptWithUrl("analyze"));
     copyFixButtonEl.addEventListener("click", () => copyPromptWithUrl("fix"));
+    transcriptEditorEl.addEventListener("input", () => {{
+      transcriptDirty = transcriptEditorEl.value !== lastTranscriptValue;
+      if (transcriptDirty) {{
+        setTranscriptSaveStatus("有未保存的修改。");
+      }} else if (lastTranscriptValue) {{
+        setTranscriptSaveStatus("");
+      }} else {{
+        setTranscriptSaveStatus("还没有可用转写。你可以直接在这里补充或修正。");
+      }}
+      updateTranscriptControls();
+    }});
+    saveTranscriptButtonEl.addEventListener("click", () => {{
+      void saveTranscript();
+    }});
+    updateTranscriptControls();
   </script>
 </body>
 </html>
@@ -799,6 +946,34 @@ class SessionServerHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+            return
+        self.send_error(HTTPStatus.NOT_FOUND, "not found")
+
+    def do_POST(self) -> None:  # noqa: N802
+        self.server.last_request_monotonic = time.monotonic()
+        path = self.path.split("?", 1)[0]
+        if path.startswith("/api/sessions/") and path.endswith("/transcript"):
+            session_id = unquote(path[len("/api/sessions/") : -len("/transcript")]).strip("/")
+            if not session_dir(session_id).exists():
+                json_response(self, HTTPStatus.NOT_FOUND, {"error": "session not found"})
+                return
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                content_length = 0
+            raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            try:
+                payload = json.loads(raw_body.decode("utf-8"))
+            except Exception:  # noqa: BLE001
+                json_response(self, HTTPStatus.BAD_REQUEST, {"error": "invalid json"})
+                return
+            transcript = payload.get("transcript")
+            if not isinstance(transcript, str):
+                json_response(self, HTTPStatus.BAD_REQUEST, {"error": "transcript must be a string"})
+                return
+            port = self.server.server_address[1]
+            snapshot = update_transcript(session_id, transcript, f"http://127.0.0.1:{port}")
+            json_response(self, HTTPStatus.OK, {"ok": True, "snapshot": snapshot})
             return
         self.send_error(HTTPStatus.NOT_FOUND, "not found")
 
