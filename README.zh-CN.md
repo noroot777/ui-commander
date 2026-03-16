@@ -257,6 +257,20 @@ UI Commander 作为 skill 安装后，你只需要在和 AI agent 的对话中**
 | `帮我修复一下` |
 | `recording won't start, help me fix it` |
 
+### 🔄 更新 Skill
+
+让 agent 拉取最新代码并重新初始化。更新完成后，**记得在 `chrome://extensions` 中重新加载浏览器插件**，确保扩展侧的更改也生效：
+
+| 示例 |
+|------|
+| `更新 UI Commander` |
+| `升级一下这个 skill` |
+| `拉取最新版本并重新初始化` |
+| `update UI Commander` |
+| `upgrade ui-commander` |
+
+> 更新完成后，打开 `chrome://extensions`，点击 UI Commander 扩展上的 **重新加载** 按钮，确保浏览器端也同步更新。
+
 ---
 
 ## 录制技巧

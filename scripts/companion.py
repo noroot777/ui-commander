@@ -1488,6 +1488,7 @@ def start_session(payload: dict) -> dict:
             "enabled": bool(audio.get("ok")),
             "device_name": audio.get("device_name"),
             "device_index": audio.get("device_index"),
+            "error": audio.get("error"),
         },
     }
 
@@ -1684,7 +1685,9 @@ def choose_audio_device(ffmpeg_path: str) -> dict[str, object] | None:
 def start_native_audio_capture(session_id: str) -> dict[str, object]:
     ffmpeg_path = find_command("ffmpeg")
     if ffmpeg_path is None:
-        return {"ok": False, "error": "ffmpeg not available"}
+        result = {"ok": False, "error": "ffmpeg not available"}
+        log_line(f"native_audio_unavailable session_id={session_id} reason={result['error']!r}")
+        return result
 
     path = ensure_session(session_id)
     audio_path = path / "audio" / "mic.wav"
@@ -1693,7 +1696,9 @@ def start_native_audio_capture(session_id: str) -> dict[str, object]:
 
     device = choose_audio_device(ffmpeg_path)
     if device is None:
-        return {"ok": False, "error": "no supported audio input device found"}
+        result = {"ok": False, "error": "no supported audio input device found"}
+        log_line(f"native_audio_unavailable session_id={session_id} reason={result['error']!r}")
+        return result
 
     system = platform.system()
     if system == "Darwin":
@@ -1703,27 +1708,34 @@ def start_native_audio_capture(session_id: str) -> dict[str, object]:
         input_format = "dshow"
         input_spec = f"audio={device['name']}"
     else:
-        return {"ok": False, "error": f"native audio capture is not supported on {system}"}
+        result = {"ok": False, "error": f"native audio capture is not supported on {system}"}
+        log_line(f"native_audio_unavailable session_id={session_id} reason={result['error']!r}")
+        return result
 
-    process = subprocess.Popen(
-        [
-            ffmpeg_path,
-            "-y",
-            "-f",
-            input_format,
-            "-i",
-            input_spec,
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            str(audio_path),
-        ],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=True,
-    )
+    try:
+        process = subprocess.Popen(
+            [
+                ffmpeg_path,
+                "-y",
+                "-f",
+                input_format,
+                "-i",
+                input_spec,
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                str(audio_path),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        result = {"ok": False, "error": f"failed to launch ffmpeg recorder: {exc}"}
+        log_line(f"native_audio_unavailable session_id={session_id} reason={result['error']!r}")
+        return result
     ACTIVE_AUDIO_RECORDERS[session_id] = {
         "process": process,
         "path": audio_path,

@@ -257,6 +257,20 @@ If recording fails to start or stop, or the bridge seems broken, the agent will 
 | `录制启动不了` |
 | `帮我修复一下` |
 
+### 🔄 Update the Skill
+
+Ask the agent to pull the latest code and re-initialize. After updating, **remember to reload the Chrome extension** in `chrome://extensions` to pick up any extension-side changes:
+
+| Example |
+|---------|
+| `update UI Commander` |
+| `upgrade ui-commander to the latest version` |
+| `pull the latest UI Commander and re-initialize` |
+| `更新 UI Commander` |
+| `升级一下这个 skill` |
+
+> After the update completes, go to `chrome://extensions` and click the **reload** button on the UI Commander extension to ensure the browser side is also up to date.
+
 ---
 
 ## Recording Tips
