@@ -20,7 +20,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PYTHON_BIN = resolve_python_executable(sys.executable)
 
 
-def run_command(command: list[str], label: str, timeout: int = 1800) -> dict[str, object]:
+def run_command(
+    command: list[str],
+    label: str,
+    timeout: int = 1800,
+    *,
+    include_stdout: bool = False,
+) -> dict[str, object]:
     try:
         result = subprocess.run(
             command,
@@ -38,7 +44,7 @@ def run_command(command: list[str], label: str, timeout: int = 1800) -> dict[str
             "error": str(exc),
         }
     except subprocess.TimeoutExpired as exc:
-        return {
+        payload = {
             "label": label,
             "command": command,
             "ok": False,
@@ -46,7 +52,10 @@ def run_command(command: list[str], label: str, timeout: int = 1800) -> dict[str
             "stdout_tail": (exc.stdout or "")[-1200:],
             "stderr_tail": (exc.stderr or "")[-1200:],
         }
-    return {
+        if include_stdout:
+            payload["stdout"] = exc.stdout or ""
+        return payload
+    payload = {
         "label": label,
         "command": command,
         "ok": result.returncode == 0,
@@ -54,21 +63,39 @@ def run_command(command: list[str], label: str, timeout: int = 1800) -> dict[str
         "stdout_tail": result.stdout[-1200:],
         "stderr_tail": result.stderr[-1200:],
     }
+    if include_stdout:
+        payload["stdout"] = result.stdout
+    return payload
 
 
-def run_python_script(script_name: str, args: list[str], label: str, timeout: int = 1800) -> dict[str, object]:
-    return run_command([PYTHON_BIN, str(PROJECT_ROOT / "scripts" / script_name), *args], label, timeout=timeout)
+def run_python_script(
+    script_name: str,
+    args: list[str],
+    label: str,
+    timeout: int = 1800,
+    *,
+    include_stdout: bool = False,
+) -> dict[str, object]:
+    return run_command(
+        [PYTHON_BIN, str(PROJECT_ROOT / "scripts" / script_name), *args],
+        label,
+        timeout=timeout,
+        include_stdout=include_stdout,
+    )
 
 
 def load_status() -> dict[str, object]:
-    result = run_python_script("status.py", [], "status", timeout=60)
+    result = run_python_script("status.py", [], "status", timeout=60, include_stdout=True)
     if not result.get("ok"):
         raise RuntimeError(f"Unable to read status: {result}")
-    raw = str(result.get("stdout_tail") or "").strip()
+    raw = str(result.get("stdout") or "").strip()
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:  # noqa: PERF203
-        raise RuntimeError(f"Unable to parse status payload: {exc}: {raw}") from exc
+        raise RuntimeError(
+            "Unable to parse status payload "
+            f"(stdout_tail={result.get('stdout_tail')!r}): {exc}: {raw}"
+        ) from exc
 
 
 def install_whisper() -> dict[str, object]:
