@@ -14,6 +14,7 @@ const KEYFRAME_INTERVAL_MS = 900;
 const OFFSCREEN_STOP_TIMEOUT_MS = 5000;
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 const MICROPHONE_HELPER_PATH = "microphone.html";
+const MAC_MICROPHONE_HELPER_ARMED_KEY = "macMicrophoneHelperArmed";
 let platformOs = null;
 let preferredLanguage = null;
 let currentNativeRequest = null;
@@ -199,6 +200,21 @@ async function savePreferredMicrophone(microphone) {
       deviceId: microphone.deviceId,
       label: microphone.label
     }
+  });
+}
+
+async function isMacMicrophoneHelperArmed() {
+  try {
+    const stored = await chrome.storage.local.get(MAC_MICROPHONE_HELPER_ARMED_KEY);
+    return stored?.[MAC_MICROPHONE_HELPER_ARMED_KEY] === true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function setMacMicrophoneHelperArmed(armed) {
+  await chrome.storage.local.set({
+    [MAC_MICROPHONE_HELPER_ARMED_KEY]: Boolean(armed)
   });
 }
 
@@ -644,6 +660,9 @@ async function startSession(tab, microphone = null, options = {}) {
       microphone
     });
     audioEnabled = true;
+    if (platformOs === "mac") {
+      await setMacMicrophoneHelperArmed(false);
+    }
     await appendInternalEvent(
       "audio_status",
       `recording:${audioStart?.mimeType || "unknown"}:${audioStart?.track || "unknown-track"}`
@@ -657,7 +676,22 @@ async function startSession(tab, microphone = null, options = {}) {
     audioError = error?.message || "unknown";
     await appendInternalEvent("audio_status", `start_error:${audioError}`);
     if (options.openPermissionHelperOnAudioError !== false && /NotAllowedError|Permission dismissed|NotFoundError/i.test(audioError)) {
-      await openMicrophoneHelper(tab.id, "retry");
+      if (!platformOs) {
+        const info = await platformInfo();
+        platformOs = info.os || "unknown";
+      }
+      let shouldOpenHelper = platformOs === "win";
+      if (platformOs === "mac") {
+        const armed = await isMacMicrophoneHelperArmed();
+        if (armed) {
+          shouldOpenHelper = true;
+        } else {
+          await setMacMicrophoneHelperArmed(true);
+        }
+      }
+      if (shouldOpenHelper) {
+        await openMicrophoneHelper(tab.id, "retry");
+      }
       if (contentReady) {
         await showPageCue(
           tab.id,
@@ -729,96 +763,118 @@ async function stopSession() {
   if (!sessionId || finalizing) {
     return null;
   }
+  const finishingSessionId = sessionId;
   finalizing = true;
   const stoppingTabId = activeTabId;
-  await appendInternalEvent("stop_requested", stoppingTabId);
-  recording = false;
-  setFinalizingBadge();
-  if (stoppingTabId !== null) {
-    await setContentCaptureState(stoppingTabId, false);
-    await showPageCue(stoppingTabId, {
-      title: copy.savingTitle,
-      body: copy.savingBody,
-      hint: copy.savingHint,
-      sticky: true,
-      maxStickyMs: 15000
-    }, "info");
-  }
-
-  stopKeyframeCapture();
-  await persistKeyframe("stop");
-
+  let response = null;
   try {
-    const audioResult = await sendOffscreenCommand(
-      "stop-audio-recording",
-      {},
-      { timeoutMs: OFFSCREEN_STOP_TIMEOUT_MS }
-    );
-    if (audioResult?.audio?.data) {
-      await sendNative("write_artifact", {
-        session_id: sessionId,
-        path: "audio/mic.webm",
-        data: audioResult.audio.data,
-        encoding: "base64"
-      });
-      await appendInternalEvent(
-        "audio_status",
-        `saved:${audioResult.audio.size || 0}:${audioResult.chunkCount || 0}:${audioResult.byteCount || 0}`
-      );
-    } else {
-      await appendInternalEvent(
-        "audio_status",
-        `empty:${audioResult?.chunkCount || 0}:${audioResult?.byteCount || 0}:${audioResult?.recorderError || "none"}`
-      );
+    await appendInternalEvent("stop_requested", stoppingTabId);
+    recording = false;
+    setFinalizingBadge();
+    if (stoppingTabId !== null) {
+      await setContentCaptureState(stoppingTabId, false);
+      await showPageCue(stoppingTabId, {
+        title: copy.savingTitle,
+        body: copy.savingBody,
+        hint: copy.savingHint,
+        sticky: true,
+        maxStickyMs: 15000
+      }, "info");
     }
-  } catch (error) {
-    await appendInternalEvent("audio_status", `error:${error.message || "unknown"}`);
-    // Continue finalization even if microphone stop or upload fails.
-  }
 
-  await detachDebugger();
-  const response = await sendNative("finalize_session", {
-    session_id: sessionId
-  });
-  if (stoppingTabId !== null) {
-    if (response?.review_opened) {
-      const hidden = await removePageCue(stoppingTabId);
-      if (!hidden) {
+    stopKeyframeCapture();
+    await persistKeyframe("stop");
+
+    try {
+      const audioResult = await sendOffscreenCommand(
+        "stop-audio-recording",
+        {},
+        { timeoutMs: OFFSCREEN_STOP_TIMEOUT_MS }
+      );
+      if (audioResult?.audio?.data) {
+        await sendNative("write_artifact", {
+          session_id: finishingSessionId,
+          path: "audio/mic.webm",
+          data: audioResult.audio.data,
+          encoding: "base64"
+        });
+        await appendInternalEvent(
+          "audio_status",
+          `saved:${audioResult.audio.size || 0}:${audioResult.chunkCount || 0}:${audioResult.byteCount || 0}`
+        );
+      } else {
+        await appendInternalEvent(
+          "audio_status",
+          `empty:${audioResult?.chunkCount || 0}:${audioResult?.byteCount || 0}:${audioResult?.recorderError || "none"}`
+        );
+      }
+    } catch (error) {
+      await appendInternalEvent("audio_status", `error:${error.message || "unknown"}`);
+      // Continue finalization even if microphone stop or upload fails.
+    }
+
+    await detachDebugger();
+    response = await sendNative("finalize_session", {
+      session_id: finishingSessionId
+    });
+    if (stoppingTabId !== null) {
+      if (response?.review_opened) {
+        const hidden = await removePageCue(stoppingTabId);
+        if (!hidden) {
+          await showPageCue(
+            stoppingTabId,
+            {
+              title: copy.completeTitle,
+              body: copy.completeWithAgentBody,
+              hint: copy.completeWithAgentHint,
+              durationMs: 900
+            },
+            "success"
+          );
+        }
+      } else {
         await showPageCue(
           stoppingTabId,
-          {
-            title: copy.completeTitle,
-            body: copy.completeWithAgentBody,
-            hint: copy.completeWithAgentHint,
-            durationMs: 900
-          },
+          response?.orchestrator?.triggered
+            ? {
+                title: copy.completeTitle,
+                body: copy.completeWithAgentBody,
+                hint: copy.completeWithAgentHint
+              }
+            : {
+                title: copy.completeTitle,
+                body: copy.completeBody,
+                hint: copy.completeHint
+              },
           "success"
         );
       }
-    } else {
+    }
+    return response;
+  } catch (error) {
+    if (stoppingTabId !== null) {
       await showPageCue(
         stoppingTabId,
-        response?.orchestrator?.triggered
-          ? {
-              title: copy.completeTitle,
-              body: copy.completeWithAgentBody,
-              hint: copy.completeWithAgentHint
-            }
-          : {
-              title: copy.completeTitle,
-              body: copy.completeBody,
-              hint: copy.completeHint
-            },
-        "success"
+        {
+          title: copy.unableToStopTitle,
+          body: error?.message || copy.unableToStopBody((await shortcutLabels()).stop),
+          tone: "warning",
+          durationMs: 4200
+        },
+        "warning"
       );
     }
+    throw error;
+  } finally {
+    stopKeyframeCapture();
+    await detachDebugger();
+    await closeOffscreenDocument();
+    sessionId = null;
+    activeTabId = null;
+    recording = false;
+    finalizing = false;
+    setIdleBadge();
   }
-  await closeOffscreenDocument();
-  sessionId = null;
-  activeTabId = null;
-  finalizing = false;
-  setIdleBadge();
-  return response;
 }
 
 async function handleStartRequest(microphone = null) {
