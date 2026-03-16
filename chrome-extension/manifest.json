@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "UI Commander",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA94LXhHbUvHxOq/AUDEYKrbWIAwvJzSukIAevssE0VGfVKkCWpMxMw2kcPf3LwMnubU6PeXfx7day7AdwbAAW4RxRDpU0soTH1xs8ZKGsIKYHb4El0zVwcZYVoCJbcxI6Lcj8X9P+g4kaiNsUJZMmhWIuNpAjdM31UF4nI+XZEarMaXqHbeoFjcRhR98wcHFufJ5ukORasO5ketKw6slektX2SCCjGKOJHULIl6/UQsOHq92UDQ3I+J4bGXjLDqfxMtIhsKdTC2zzvr6v4PHbuPJ7GoQZfo6xbHpBDEjhhYwzhniLG9bq2ZW0TbVJ54AwodlqgcnNfWXLJmr/UerxCwIDAQAB",
   "description": "Capture frontend bug reproductions in the current Chrome session.",
   "permissions": [

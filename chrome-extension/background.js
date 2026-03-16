@@ -587,9 +587,9 @@ async function startSession(tab, microphone = null) {
       "audio_device",
       `${audioStart?.deviceId || microphone?.deviceId || "unknown"}:${audioStart?.track || microphone?.label || "unknown"}`
     );
-  } catch (_error) {
+  } catch (error) {
     audioEnabled = false;
-    await appendInternalEvent("audio_status", "unavailable");
+    await appendInternalEvent("audio_status", `start_error:${error?.message || "unknown"}`);
   }
   if (contentReady) {
     await showPageCue(

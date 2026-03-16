@@ -38,10 +38,21 @@ async function startAudioRecording(preferredMicrophone = null) {
     audioConstraints.deviceId = { exact: preferredMicrophone.deviceId };
   }
 
-  mediaStream = await navigator.mediaDevices.getUserMedia({
-    audio: audioConstraints,
-    video: false
-  });
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: audioConstraints,
+      video: false
+    });
+  } catch (error) {
+    const messageParts = [];
+    if (error?.name) {
+      messageParts.push(error.name);
+    }
+    if (error?.message) {
+      messageParts.push(error.message);
+    }
+    throw new Error(messageParts.join(": ") || "getUserMedia failed");
+  }
 
   chunks = [];
   totalBytes = 0;
