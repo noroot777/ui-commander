@@ -1495,7 +1495,13 @@ def start_session(payload: dict) -> dict:
 
 def append_event(payload: dict) -> dict:
     session_id = payload["session_id"]
-    log_line(f"append_event session_id={session_id} type={payload['event'].get('type')!r}")
+    event_type = payload["event"].get("type")
+    if event_type == "audio_status":
+        log_line(
+            f"append_event session_id={session_id} type={event_type!r} value={payload['event'].get('value')!r}"
+        )
+    else:
+        log_line(f"append_event session_id={session_id} type={event_type!r}")
     path = ensure_session(session_id)
     append_jsonl(path / "events.jsonl", payload["event"])
     return {"ok": True}
@@ -1630,17 +1636,19 @@ def list_dshow_audio_devices(ffmpeg_path: str) -> list[dict[str, object]]:
         text=True,
         check=False,
     )
+    output_lines = "\n".join(part for part in (result.stderr, result.stdout) if part).splitlines()
     devices = []
     in_audio_section = False
-    for line in (result.stderr or "").splitlines():
-        if "DirectShow audio devices" in line:
+    for line in output_lines:
+        lowered = line.lower()
+        if "directshow audio devices" in lowered or ("audio devices" in lowered and "directshow" in lowered):
             in_audio_section = True
             continue
         if not in_audio_section:
             continue
-        if "DirectShow video devices" in line:
+        if "directshow video devices" in lowered:
             break
-        if "Alternative name" in line:
+        if "alternative name" in lowered:
             continue
         match = re.search(r'"([^"]+)"', line)
         if match:
@@ -1696,8 +1704,22 @@ def start_native_audio_capture(session_id: str) -> dict[str, object]:
 
     device = choose_audio_device(ffmpeg_path)
     if device is None:
-        result = {"ok": False, "error": "no supported audio input device found"}
+        probe = subprocess.run(
+            [ffmpeg_path, "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        probe_output = "\n".join(part for part in (probe.stderr, probe.stdout) if part)
+        probe_tail = probe_output.splitlines()[-20:]
+        result = {
+            "ok": False,
+            "error": "no supported audio input device found",
+            "probe_tail": probe_tail,
+        }
         log_line(f"native_audio_unavailable session_id={session_id} reason={result['error']!r}")
+        for line in probe_tail:
+            log_line(f"native_audio_probe session_id={session_id} line={line!r}")
         return result
 
     system = platform.system()

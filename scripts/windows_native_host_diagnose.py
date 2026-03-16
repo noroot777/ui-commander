@@ -101,6 +101,40 @@ def smoke_test_host() -> dict[str, object]:
     return response_payload
 
 
+def diagnose_audio_capture() -> dict[str, object]:
+    if platform.system() != "Windows":
+        return {"supported": False}
+
+    try:
+        from companion import choose_audio_device, find_command, list_dshow_audio_devices
+    except Exception as exc:  # noqa: BLE001
+        return {"supported": True, "ok": False, "import_error": str(exc)}
+
+    ffmpeg_path = find_command("ffmpeg")
+    if ffmpeg_path is None:
+        return {"supported": True, "ok": False, "error": "ffmpeg not available"}
+
+    probe = subprocess.run(
+        [ffmpeg_path, "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    probe_output = "\n".join(part for part in (probe.stderr, probe.stdout) if part)
+    devices = list_dshow_audio_devices(ffmpeg_path)
+    selected_device = choose_audio_device(ffmpeg_path)
+    return {
+        "supported": True,
+        "ok": True,
+        "ffmpeg_path": ffmpeg_path,
+        "probe_exit_code": probe.returncode,
+        "probe_tail": probe_output.splitlines()[-40:],
+        "device_count": len(devices),
+        "devices": devices,
+        "selected_device": selected_device,
+    }
+
+
 def main() -> int:
     log_path = native_host_log_path()
     stderr_log_path = log_path.with_name("native-host-stderr.log")
@@ -141,6 +175,7 @@ def main() -> int:
         payload["registry_points_to_manifest"] = False
 
     payload["smoke_test"] = smoke_test_host()
+    payload["audio_capture"] = diagnose_audio_capture()
 
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
