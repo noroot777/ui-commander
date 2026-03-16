@@ -11,6 +11,7 @@ import importlib.util
 import json
 import locale
 import os
+import platform
 import signal
 import re
 import shutil
