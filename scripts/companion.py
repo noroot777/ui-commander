@@ -1585,7 +1585,7 @@ def detect_default_input_name() -> str | None:
         return None
 
     current_device = None
-    for raw_line in result.stdout.splitlines():
+    for raw_line in (result.stdout or "").splitlines():
         line = raw_line.rstrip()
         stripped = line.strip()
         if not stripped:
@@ -1607,7 +1607,7 @@ def list_avfoundation_audio_devices(ffmpeg_path: str) -> list[dict[str, object]]
     )
     devices = []
     in_audio_section = False
-    for line in result.stderr.splitlines():
+    for line in (result.stderr or "").splitlines():
         if "AVFoundation audio devices:" in line:
             in_audio_section = True
             continue
@@ -1631,7 +1631,7 @@ def list_dshow_audio_devices(ffmpeg_path: str) -> list[dict[str, object]]:
     )
     devices = []
     in_audio_section = False
-    for line in result.stderr.splitlines():
+    for line in (result.stderr or "").splitlines():
         if "DirectShow audio devices" in line:
             in_audio_section = True
             continue
