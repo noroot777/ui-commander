@@ -824,20 +824,21 @@ async function stopSession() {
 async function handleStartRequest(microphone = null) {
   if (recording || finalizing) {
     const copy = await localizedCopy();
-    if (activeTabId !== null) {
-      await showPageCue(
-        activeTabId,
-        finalizing
-          ? {
-              title: copy.stillSavingTitle,
-              body: copy.stillSavingBody
-            }
-          : {
-              title: copy.alreadyRecordingTitle,
-              body: copy.alreadyRecordingBody
-            },
-        "info"
-      );
+    const current = await currentTab().catch(() => null);
+    const cuePayload = finalizing
+      ? {
+          title: copy.stillSavingTitle,
+          body: copy.stillSavingBody
+        }
+      : {
+          title: copy.alreadyRecordingTitle,
+          body: copy.alreadyRecordingBody
+        };
+    const targetTabIds = new Set(
+      [activeTabId, current?.id].filter((value) => typeof value === "number")
+    );
+    for (const tabId of targetTabIds) {
+      await showPageCue(tabId, cuePayload, "info");
     }
     return null;
   }
