@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>UI Commander Microphone Access</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f3ea;
+        --panel: #fffdf7;
+        --ink: #1f1a17;
+        --muted: #6e6259;
+        --accent: #b85c38;
+        --accent-strong: #8f4325;
+        --line: rgba(31, 26, 23, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(184, 92, 56, 0.12), transparent 34%),
+          linear-gradient(180deg, #fbf7ef 0%, var(--bg) 100%);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      main {
+        width: min(640px, 100%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 32px 28px;
+        box-shadow: 0 20px 60px rgba(31, 26, 23, 0.08);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(28px, 5vw, 38px);
+        line-height: 1.05;
+      }
+
+      p {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.7;
+        color: var(--muted);
+      }
+
+      .lead {
+        margin-bottom: 18px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      button {
+        border: none;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font: inherit;
+        font-size: 15px;
+        cursor: pointer;
+      }
+
+      #grant {
+        background: var(--accent);
+        color: white;
+      }
+
+      #grant:hover {
+        background: var(--accent-strong);
+      }
+
+      #close {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+
+      #status {
+        margin-top: 22px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        min-height: 48px;
+      }
+
+      #status strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 15px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Give UI Commander a microphone, once.</h1>
+      <p class="lead">
+        Keyboard shortcuts can start from a hidden recording page, and Chrome may dismiss the microphone request there
+        without showing you a visible prompt. This helper page asks in the open.
+      </p>
+      <p>
+        Click the button below, allow microphone access when Chrome asks, and UI Commander will return to your original
+        tab and begin recording there.
+      </p>
+      <div class="actions">
+        <button id="grant" type="button">Allow microphone and start recording</button>
+        <button id="close" type="button">Close</button>
+      </div>
+      <div id="status" aria-live="polite">
+        <strong>Waiting</strong>
+        <span>Nothing has started yet.</span>
+      </div>
+    </main>
+    <script src="microphone.js"></script>
+  </body>
+</html>

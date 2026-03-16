@@ -13,6 +13,7 @@ let keyframeCaptureInFlight = false;
 const KEYFRAME_INTERVAL_MS = 900;
 const OFFSCREEN_STOP_TIMEOUT_MS = 5000;
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+const MICROPHONE_HELPER_PATH = "microphone.html";
 let platformOs = null;
 let preferredLanguage = null;
 let currentNativeRequest = null;
@@ -44,6 +45,12 @@ const I18N = {
     notRecordingBody: (start) => `Press ${start} first to start a new UI Commander session.`,
     unableToStopTitle: "Unable to stop recording",
     unableToStopBody: (stop) => `UI Commander could not stop this recording cleanly with ${stop}.`,
+    microphonePermissionTitle: "Microphone permission needed",
+    microphonePermissionBody: "UI Commander opened a helper tab so you can allow microphone access before recording.",
+    microphonePermissionHint: "Approve microphone access there, then recording will start.",
+    microphoneRetryTitle: "Microphone access still blocked",
+    microphoneRetryBody: "This session will continue without audio. The helper tab can re-enable microphone access for the next recording.",
+    microphoneRetryHint: "Use the helper tab to allow microphone access in Chrome.",
     shortcutsTitle: "UI Commander shortcuts",
     shortcutsBody: (start, stop) => `Press ${start} to start recording on this page.\nPress ${stop} to stop and save the session.`,
     shortcutsHint: "After the start cue appears, begin speaking.",
@@ -75,6 +82,12 @@ const I18N = {
     notRecordingBody: (start) => `请先按 ${start} 开始新的 UI Commander 录制。`,
     unableToStopTitle: "无法结束录制",
     unableToStopBody: (stop) => `UI Commander 暂时无法用 ${stop} 正常结束这次录制。`,
+    microphonePermissionTitle: "需要麦克风权限",
+    microphonePermissionBody: "UI Commander 已打开一个辅助页面，先在那里允许麦克风访问，再开始录制。",
+    microphonePermissionHint: "在新页面里允许麦克风后，录制会继续开始。",
+    microphoneRetryTitle: "麦克风权限仍未放行",
+    microphoneRetryBody: "这次录制会继续以无音频模式进行。你可以在辅助页面里重新放行麦克风，供下一次录制使用。",
+    microphoneRetryHint: "请在辅助页面里允许 Chrome 使用麦克风。",
     shortcutsTitle: "UI Commander 快捷键",
     shortcutsBody: (start, stop) => `按 ${start} 开始录制当前页面。\n按 ${stop} 结束并保存这次 session。`,
     shortcutsHint: "看到开始提示后，再开口描述问题。",
@@ -106,6 +119,12 @@ const I18N = {
     notRecordingBody: (start) => `まず ${start} を押して、新しい UI Commander session を開始してください。`,
     unableToStopTitle: "録画を停止できませんでした",
     unableToStopBody: (stop) => `${stop} でこの録画を正常に停止できませんでした。`,
+    microphonePermissionTitle: "マイク権限が必要です",
+    microphonePermissionBody: "UI Commander がマイク権限を許可するためのヘルパータブを開きました。許可してから録画を開始してください。",
+    microphonePermissionHint: "新しいタブでマイクを許可すると録画を始められます。",
+    microphoneRetryTitle: "マイク権限がまだ許可されていません",
+    microphoneRetryBody: "この録画は音声なしで続行されます。次回の録画用にヘルパータブでマイク権限を許可してください。",
+    microphoneRetryHint: "ヘルパータブで Chrome のマイク利用を許可してください。",
     shortcutsTitle: "UI Commander ショートカット",
     shortcutsBody: (start, stop) => `${start} でこのページの録画を開始します。\n${stop} で停止して session を保存します。`,
     shortcutsHint: "開始メッセージが出てから話し始めてください。",
@@ -150,6 +169,51 @@ async function ensurePreferredLanguage() {
 async function localizedCopy() {
   const language = await ensurePreferredLanguage();
   return I18N[language] || I18N.en;
+}
+
+async function loadPreferredMicrophone() {
+  try {
+    const stored = await chrome.storage.local.get("preferredMicrophone");
+    const microphone = stored?.preferredMicrophone;
+    if (!microphone || typeof microphone !== "object") {
+      return null;
+    }
+    if (typeof microphone.deviceId !== "string" || typeof microphone.label !== "string") {
+      return null;
+    }
+    return {
+      deviceId: microphone.deviceId,
+      label: microphone.label
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function savePreferredMicrophone(microphone) {
+  if (!microphone?.deviceId || !microphone?.label) {
+    return;
+  }
+  await chrome.storage.local.set({
+    preferredMicrophone: {
+      deviceId: microphone.deviceId,
+      label: microphone.label
+    }
+  });
+}
+
+async function openMicrophoneHelper(targetTabId = null, reason = "permission") {
+  const url = new URL(chrome.runtime.getURL(MICROPHONE_HELPER_PATH));
+  if (targetTabId !== null && targetTabId !== undefined) {
+    url.searchParams.set("tabId", String(targetTabId));
+  }
+  if (reason) {
+    url.searchParams.set("reason", reason);
+  }
+  return chrome.tabs.create({
+    url: url.toString(),
+    active: true
+  });
 }
 
 function setIdleBadge() {
@@ -527,7 +591,7 @@ async function detachDebugger() {
   attachedDebugger = null;
 }
 
-async function startSession(tab, microphone = null) {
+async function startSession(tab, microphone = null, options = {}) {
   const shortcuts = await shortcutLabels();
   const copy = await localizedCopy();
   await ensureOffscreenDocument();
@@ -574,6 +638,7 @@ async function startSession(tab, microphone = null) {
     await appendInternalEvent("debugger_status", "unavailable");
   }
   let audioEnabled = false;
+  let audioError = null;
   try {
     const audioStart = await sendOffscreenCommand("start-audio-recording", {
       microphone
@@ -589,7 +654,24 @@ async function startSession(tab, microphone = null) {
     );
   } catch (error) {
     audioEnabled = false;
-    await appendInternalEvent("audio_status", `start_error:${error?.message || "unknown"}`);
+    audioError = error?.message || "unknown";
+    await appendInternalEvent("audio_status", `start_error:${audioError}`);
+    if (options.openPermissionHelperOnAudioError !== false && /NotAllowedError|Permission dismissed|NotFoundError/i.test(audioError)) {
+      await openMicrophoneHelper(tab.id, "retry");
+      if (contentReady) {
+        await showPageCue(
+          tab.id,
+          {
+            title: copy.microphoneRetryTitle,
+            body: copy.microphoneRetryBody,
+            hint: copy.microphoneRetryHint,
+            durationMs: 4200,
+            tone: "warning"
+          },
+          "warning"
+        );
+      }
+    }
   }
   if (contentReady) {
     await showPageCue(
@@ -632,6 +714,7 @@ async function startSession(tab, microphone = null) {
     audioEnabled,
     contentReady,
     nativeAudio: response.native_audio || null,
+    audioError,
     microphone: audioEnabled
       ? {
           deviceId: microphone?.deviceId || null,
@@ -760,7 +843,35 @@ async function handleStartRequest(microphone = null) {
   }
 
   const tab = await currentTab();
-  return startSession(tab, microphone);
+  let selectedMicrophone = microphone;
+  if (!selectedMicrophone) {
+    selectedMicrophone = await loadPreferredMicrophone();
+  } else {
+    await savePreferredMicrophone(selectedMicrophone);
+  }
+
+  if (!selectedMicrophone) {
+    const info = await platformInfo();
+    platformOs = info.os || platformOs || "unknown";
+    if (platformOs === "win") {
+      const copy = await localizedCopy();
+      await openMicrophoneHelper(tab.id, "setup");
+      await showPageCue(
+        tab.id,
+        {
+          title: copy.microphonePermissionTitle,
+          body: copy.microphonePermissionBody,
+          hint: copy.microphonePermissionHint,
+          durationMs: 4200,
+          tone: "info"
+        },
+        "info"
+      );
+      return { ok: true, helperOpened: true };
+    }
+  }
+
+  return startSession(tab, selectedMicrophone);
 }
 
 async function handleStopRequest() {
@@ -890,6 +1001,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.type === "popup-stop" || message.type === "command-stop") {
       const result = await handleStopRequest();
+      sendResponse(result || { ok: true });
+      return;
+    }
+
+    if (message.type === "microphone-helper-start") {
+      const targetTabId = Number(message.tabId);
+      if (!Number.isFinite(targetTabId)) {
+        throw new Error("missing target tab");
+      }
+      const targetTab = await chrome.tabs.get(targetTabId);
+      await savePreferredMicrophone(message.microphone || null);
+      const result = await startSession(targetTab, message.microphone || null, {
+        openPermissionHelperOnAudioError: false
+      });
       sendResponse(result || { ok: true });
       return;
     }

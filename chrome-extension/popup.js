@@ -62,11 +62,26 @@ async function detectPreferredMicrophone() {
     : null;
 }
 
+async function rememberMicrophone(microphone) {
+  if (!microphone?.deviceId || !microphone?.label) {
+    return;
+  }
+  await chrome.storage.local.set({
+    preferredMicrophone: {
+      deviceId: microphone.deviceId,
+      label: microphone.label
+    }
+  });
+}
+
 document.getElementById("start").addEventListener("click", async () => {
   status.textContent = "Starting session...";
   try {
     const micGranted = await requestMicrophoneAccess();
     lastSelectedMic = micGranted ? await detectPreferredMicrophone() : null;
+    if (lastSelectedMic) {
+      await rememberMicrophone(lastSelectedMic);
+    }
     const response = await sendWithPayload("popup-start", {
       microphone: lastSelectedMic
     });
