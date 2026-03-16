@@ -223,6 +223,40 @@ UI Commander 作为 skill 安装后，你只需要在和 AI agent 的对话中**
 
 > 包含「直接修复」字样时，agent 会直接进入代码修改模式而非仅做分析。
 
+### 🌐 切换录制语言
+
+随时可以在对话中切换录制时的语音语言，设置会持久保存：
+
+| 示例 |
+|------|
+| `录制语言换成英文` |
+| `转写语言切到日语` |
+| `switch recording language to English` |
+| `把录制语言设为中文` |
+
+### 🎵 切换 Whisper 模型
+
+如果觉得转写不够准确，可以要求 agent 切换到更大的模型。切换后会持久保存，后续录制都会沿用：
+
+| 示例 |
+|------|
+| `whisper 模型切到 medium` |
+| `用 large 模型转写` |
+| `switch whisper to medium` |
+| `use the large model for transcription` |
+
+### 🛠️ 故障排查
+
+如果录制无法启动或停止，或者桥接出现问题，agent 会自动诊断并修复。你也可以主动提出：
+
+| 示例 |
+|------|
+| `录制启动不了` |
+| `UI Commander 用不了了` |
+| `帮我检查一下录制为什么失败` |
+| `帮我修复一下` |
+| `recording won't start, help me fix it` |
+
 ---
 
 ## 录制技巧

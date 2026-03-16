@@ -223,6 +223,40 @@ If you already have a recorded session, paste the URL or session id — the agen
 
 > When "fix" is included, the agent enters code modification mode rather than analysis-only.
 
+### 🌐 Switch Recording Language
+
+Change the narration language anytime in conversation. The setting persists across sessions:
+
+| Example |
+|---------|
+| `switch recording language to English` |
+| `change transcription language to Japanese` |
+| `录制语言换成英文` |
+| `set recording language to Chinese` |
+
+### 🎵 Switch Whisper Model
+
+If transcription quality isn't good enough, ask the agent to switch to a larger model. The setting persists for all future recordings:
+
+| Example |
+|---------|
+| `switch whisper to medium` |
+| `use the large model for transcription` |
+| `whisper 模型切到 medium` |
+| `用 large 模型转写` |
+
+### 🛠️ Troubleshooting
+
+If recording fails to start or stop, or the bridge seems broken, the agent will automatically diagnose and repair. You can also ask explicitly:
+
+| Example |
+|---------|
+| `recording won't start, help me fix it` |
+| `UI Commander isn't working` |
+| `check why recording failed` |
+| `录制启动不了` |
+| `帮我修复一下` |
+
 ---
 
 ## Recording Tips
