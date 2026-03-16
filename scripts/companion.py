@@ -1621,15 +1621,62 @@ def list_avfoundation_audio_devices(ffmpeg_path: str) -> list[dict[str, object]]
     return devices
 
 
+def list_dshow_audio_devices(ffmpeg_path: str) -> list[dict[str, object]]:
+    result = subprocess.run(
+        [ffmpeg_path, "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    devices = []
+    in_audio_section = False
+    for line in result.stderr.splitlines():
+        if "DirectShow audio devices" in line:
+            in_audio_section = True
+            continue
+        if not in_audio_section:
+            continue
+        if "DirectShow video devices" in line:
+            break
+        if "Alternative name" in line:
+            continue
+        match = re.search(r'"([^"]+)"', line)
+        if match:
+            devices.append({
+                "index": len(devices),
+                "name": match.group(1).strip(),
+            })
+    return devices
+
+
 def choose_audio_device(ffmpeg_path: str) -> dict[str, object] | None:
-    devices = list_avfoundation_audio_devices(ffmpeg_path)
+    system = platform.system()
+    devices: list[dict[str, object]]
+    if system == "Darwin":
+        devices = list_avfoundation_audio_devices(ffmpeg_path)
+    elif system == "Windows":
+        devices = list_dshow_audio_devices(ffmpeg_path)
+    else:
+        return None
     if not devices:
         return None
-    default_name = detect_default_input_name()
-    if default_name:
-        for device in devices:
-            if str(device["name"]) == default_name:
-                return device
+    if system == "Darwin":
+        default_name = detect_default_input_name()
+        if default_name:
+            for device in devices:
+                if str(device["name"]) == default_name:
+                    return device
+    if system == "Windows":
+        ranked_devices = sorted(
+            devices,
+            key=lambda device: (
+                -int("microphone" in str(device["name"]).lower() or "mic" in str(device["name"]).lower()),
+                -int("array" in str(device["name"]).lower() or "input" in str(device["name"]).lower()),
+                int("stereo mix" in str(device["name"]).lower() or "virtual" in str(device["name"]).lower()),
+                int(device["index"]),
+            ),
+        )
+        return ranked_devices[0]
     return devices[0]
 
 
@@ -1645,16 +1692,26 @@ def start_native_audio_capture(session_id: str) -> dict[str, object]:
 
     device = choose_audio_device(ffmpeg_path)
     if device is None:
-        return {"ok": False, "error": "no avfoundation audio device found"}
+        return {"ok": False, "error": "no supported audio input device found"}
+
+    system = platform.system()
+    if system == "Darwin":
+        input_format = "avfoundation"
+        input_spec = f":{device['index']}"
+    elif system == "Windows":
+        input_format = "dshow"
+        input_spec = f"audio={device['name']}"
+    else:
+        return {"ok": False, "error": f"native audio capture is not supported on {system}"}
 
     process = subprocess.Popen(
         [
             ffmpeg_path,
             "-y",
             "-f",
-            "avfoundation",
+            input_format,
             "-i",
-            f":{device['index']}",
+            input_spec,
             "-ac",
             "1",
             "-ar",
@@ -1735,8 +1792,8 @@ def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
         }
     ffmpeg_dir = str(Path(ffmpeg_path).parent)
     current_path = os.environ.get("PATH", "")
-    if ffmpeg_dir not in current_path.split(":"):
-        os.environ["PATH"] = f"{ffmpeg_dir}:{current_path}" if current_path else ffmpeg_dir
+    if ffmpeg_dir not in current_path.split(os.pathsep):
+        os.environ["PATH"] = f"{ffmpeg_dir}{os.pathsep}{current_path}" if current_path else ffmpeg_dir
 
     whisper = importlib.import_module("whisper")
     if not hasattr(whisper, "load_model"):
