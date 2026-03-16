@@ -349,6 +349,11 @@ async function closeOffscreenDocument() {
     return;
   }
   try {
+    try {
+      await sendOffscreenCommand("cleanup-audio-recording", {}, { timeoutMs: 1000 });
+    } catch (_error) {
+      // Best effort: still attempt to close the offscreen document.
+    }
     await chrome.offscreen.closeDocument();
   } catch (_error) {
     // Ignore close failures during shutdown.
@@ -418,22 +423,26 @@ async function captureScreenshot() {
 }
 
 async function persistKeyframe(reason = "interval") {
-  if (!sessionId || !recording || keyframeCaptureInFlight) {
+  const currentSessionId = sessionId;
+  if (!currentSessionId || !recording || keyframeCaptureInFlight) {
     return;
   }
   keyframeCaptureInFlight = true;
   try {
     const screenshot = await captureScreenshot();
+    if (!sessionId || sessionId !== currentSessionId || (!recording && reason !== "stop")) {
+      return;
+    }
     const time = Date.now();
     const screenshotPath = `screenshots/keyframes/${time}.png`;
     await sendNative("write_artifact", {
-      session_id: sessionId,
+      session_id: currentSessionId,
       path: screenshotPath,
       data: screenshot,
       encoding: "base64"
     });
     await sendNative("append_event", {
-      session_id: sessionId,
+      session_id: currentSessionId,
       event: {
         id: `keyframe-${time}`,
         time,
@@ -470,13 +479,20 @@ function stopKeyframeCapture() {
 }
 
 async function persistEventWithOptionalScreenshot(message, sender) {
+  const currentSessionId = sessionId;
+  if (!currentSessionId) {
+    return;
+  }
   let screenshotPath = null;
   if (message.event.captureScreenshot !== false) {
     try {
       const screenshot = await captureScreenshot();
+      if (!sessionId || sessionId !== currentSessionId) {
+        return;
+      }
       screenshotPath = `screenshots/${message.event.id}.png`;
       await sendNative("write_artifact", {
-        session_id: sessionId,
+        session_id: currentSessionId,
         path: screenshotPath,
         data: screenshot,
         encoding: "base64"
@@ -486,8 +502,11 @@ async function persistEventWithOptionalScreenshot(message, sender) {
     }
   }
 
+  if (!sessionId || sessionId !== currentSessionId) {
+    return;
+  }
   await sendNative("append_event", {
-    session_id: sessionId,
+    session_id: currentSessionId,
     event: {
       ...message.event,
       screenshot: screenshotPath,
@@ -784,6 +803,14 @@ async function stopSession() {
 
     stopKeyframeCapture();
     await persistKeyframe("stop");
+
+    try {
+      await sendNative("stop_audio_capture", {
+        session_id: finishingSessionId
+      });
+    } catch (_error) {
+      // Native audio capture is optional; continue even if the host already disconnected.
+    }
 
     try {
       const audioResult = await sendOffscreenCommand(

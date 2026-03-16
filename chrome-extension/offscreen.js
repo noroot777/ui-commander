@@ -93,14 +93,38 @@ async function blobToBase64(blob) {
 }
 
 function resetRecorderState() {
+  if (mediaRecorder) {
+    try {
+      mediaRecorder.ondataavailable = null;
+      mediaRecorder.onerror = null;
+      mediaRecorder.onstop = null;
+      if (mediaRecorder.state === "recording" || mediaRecorder.state === "paused") {
+        mediaRecorder.stop();
+      }
+    } catch (_error) {
+      // Ignore recorder shutdown errors while forcing cleanup.
+    }
+  }
   if (mediaStream) {
-    mediaStream.getTracks().forEach((track) => track.stop());
+    mediaStream.getTracks().forEach((track) => {
+      try {
+        track.stop();
+      } catch (_error) {
+        // Ignore individual track shutdown errors.
+      }
+    });
   }
   mediaRecorder = null;
   mediaStream = null;
   chunks = [];
   totalBytes = 0;
   recorderMimeType = "";
+}
+
+async function cleanupAudioRecording() {
+  resetRecorderState();
+  lastRecorderError = null;
+  return { ok: true, cleanedUp: true };
 }
 
 async function stopAudioRecording() {
@@ -189,6 +213,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse(await stopAudioRecording());
       return;
     }
+    if (message.type === "cleanup-audio-recording") {
+      sendResponse(await cleanupAudioRecording());
+      return;
+    }
     sendResponse({ ok: false, error: "unknown offscreen command" });
   })().catch((error) => {
     sendResponse({ ok: false, error: error.message });
@@ -198,5 +226,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 keepAlivePort.onDisconnect.addListener(() => {
+  resetRecorderState();
   // The background service worker may restart and the offscreen document will reconnect on reload.
+});
+
+window.addEventListener("pagehide", () => {
+  resetRecorderState();
+});
+
+window.addEventListener("beforeunload", () => {
+  resetRecorderState();
 });

@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import html
 import importlib
 import importlib.util
+import io
 import json
 import locale
 import os
@@ -1804,6 +1806,14 @@ def stop_native_audio_capture(session_id: str) -> dict[str, object]:
     }
 
 
+def stop_all_native_audio_captures() -> None:
+    for session_id in list(ACTIVE_AUDIO_RECORDERS.keys()):
+        try:
+            stop_native_audio_capture(session_id)
+        except Exception as exc:  # noqa: BLE001
+            log_line(f"native_audio_cleanup_failed session_id={session_id} error={exc!r}")
+
+
 def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
     whisper_spec = importlib.util.find_spec("whisper")
     if whisper_spec is None:
@@ -1840,32 +1850,34 @@ def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
     transcription_preferences = preferences.get("transcription", {})
     model_name = str(transcription_preferences.get("model") or "small")
     prepared_audio_path = prepare_audio_for_transcription(audio_path)
-    model = whisper.load_model(model_name)
-    candidate_languages, evidence = build_language_candidates()
-    attempts: list[dict] = []
-    for candidate in [*candidate_languages, None]:
-        options = {
-            "verbose": False,
-            "temperature": 0,
-            "condition_on_previous_text": False,
-            "fp16": False,
-        }
-        if candidate:
-            options["language"] = candidate
-        result = model.transcribe(str(prepared_audio_path), **options)
-        text = (result.get("text") or "").strip()
-        detected_language = normalize_language_tag(result.get("language"))
-        score = score_transcript_for_language(text, candidate or detected_language)
-        attempts.append(
-            {
-                "requested_language": candidate,
-                "detected_language": detected_language,
-                "score": round(score, 2),
-                "text_length": len(text),
-                "text_preview": text[:120],
-                "result": result,
-            }
-        )
+    with io.StringIO() as suppressed_stdout, io.StringIO() as suppressed_stderr:
+        with contextlib.redirect_stdout(suppressed_stdout), contextlib.redirect_stderr(suppressed_stderr):
+            model = whisper.load_model(model_name)
+            candidate_languages, evidence = build_language_candidates()
+            attempts: list[dict] = []
+            for candidate in [*candidate_languages, None]:
+                options = {
+                    "verbose": False,
+                    "temperature": 0,
+                    "condition_on_previous_text": False,
+                    "fp16": False,
+                }
+                if candidate:
+                    options["language"] = candidate
+                result = model.transcribe(str(prepared_audio_path), **options)
+                text = (result.get("text") or "").strip()
+                detected_language = normalize_language_tag(result.get("language"))
+                score = score_transcript_for_language(text, candidate or detected_language)
+                attempts.append(
+                    {
+                        "requested_language": candidate,
+                        "detected_language": detected_language,
+                        "score": round(score, 2),
+                        "text_length": len(text),
+                        "text_preview": text[:120],
+                        "result": result,
+                    }
+                )
 
     preferred_candidate = normalize_language_tag(
         evidence.get("manual_preferred_language") or evidence.get("trusted_preferred_language")
@@ -2338,6 +2350,11 @@ def handle_message(message: dict) -> dict:
         return append_log(payload, "network_logs")
     if command == "write_artifact":
         return write_artifact(payload)
+    if command == "stop_audio_capture":
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return {"ok": False, "error": "missing session_id"}
+        return stop_native_audio_capture(session_id)
     if command == "finalize_session":
         return finalize_session(payload)
     return {"ok": False, "error": f"unknown command: {command}"}
@@ -2378,6 +2395,7 @@ def run_native_host() -> int:
     while True:
         message = read_native_message()
         if message is None:
+            stop_all_native_audio_captures()
             log_line("native_host stdin closed")
             return 0
         try:
@@ -2388,6 +2406,7 @@ def run_native_host() -> int:
         try:
             write_native_message(response)
         except BrokenPipeError:
+            stop_all_native_audio_captures()
             return 0
 
 
