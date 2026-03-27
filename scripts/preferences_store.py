@@ -10,6 +10,10 @@ from state_paths import migrate_legacy_state, preferences_path
 PREFERENCES_PATH = preferences_path()
 DEFAULT_TRANSCRIPTION_MODEL = "small"
 DEFAULT_LLM_MODEL = "gpt-5-mini"
+SUPPORTED_RECORDING_MODES = (
+    "standard",
+    "dynamic",
+)
 SUPPORTED_TRANSCRIPTION_MODELS = (
     "tiny",
     "base",
@@ -77,6 +81,21 @@ def normalize_llm_provider(raw: str | None) -> str | None:
     return normalized if normalized in {"host-thread", "openai"} else None
 
 
+def normalize_recording_mode(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    normalized = raw.strip().lower().replace("_", "-")
+    aliases = {
+        "default": "standard",
+        "normal": "standard",
+        "standard": "standard",
+        "dynamic": "dynamic",
+        "motion": "dynamic",
+    }
+    resolved = aliases.get(normalized)
+    return resolved if resolved in SUPPORTED_RECORDING_MODES else None
+
+
 def normalize_positive_int(raw: object, *, minimum: int, maximum: int) -> int | None:
     if raw is None or isinstance(raw, bool):
         return None
@@ -91,6 +110,10 @@ def normalize_positive_int(raw: object, *, minimum: int, maximum: int) -> int | 
 
 def default_preferences() -> dict:
     return {
+        "recording": {
+            "default_mode": "standard",
+            "next_mode": None,
+        },
         "transcription": {
             "model": DEFAULT_TRANSCRIPTION_MODEL,
             "preferred_language": None,
@@ -121,6 +144,13 @@ def read_preferences() -> dict:
         except Exception:  # noqa: BLE001
             stored = {}
         if isinstance(stored, dict):
+            recording = stored.get("recording", {})
+            if isinstance(recording, dict):
+                default_mode = normalize_recording_mode(recording.get("default_mode"))
+                next_mode = normalize_recording_mode(recording.get("next_mode"))
+                if default_mode:
+                    payload["recording"]["default_mode"] = default_mode
+                payload["recording"]["next_mode"] = next_mode
             transcription = stored.get("transcription", {})
             if isinstance(transcription, dict):
                 model = normalize_model_name(transcription.get("model"))
@@ -169,9 +199,16 @@ def read_preferences() -> dict:
 def write_preferences(payload: dict) -> dict:
     migrate_legacy_state()
     merged = default_preferences()
+    recording = payload.get("recording", {}) if isinstance(payload, dict) else {}
     transcription = payload.get("transcription", {}) if isinstance(payload, dict) else {}
     llm_intent = payload.get("llm_intent", {}) if isinstance(payload, dict) else {}
     orchestrator = payload.get("orchestrator", {}) if isinstance(payload, dict) else {}
+    if isinstance(recording, dict):
+        default_mode = normalize_recording_mode(recording.get("default_mode"))
+        next_mode = normalize_recording_mode(recording.get("next_mode"))
+        if default_mode:
+            merged["recording"]["default_mode"] = default_mode
+        merged["recording"]["next_mode"] = next_mode
     if isinstance(transcription, dict):
         model = normalize_model_name(transcription.get("model"))
         language = normalize_language_tag(transcription.get("preferred_language"))
@@ -220,6 +257,9 @@ def write_preferences(payload: dict) -> dict:
 
 def update_preferences(
     *,
+    recording_mode: str | None = None,
+    next_recording_mode: str | None = None,
+    clear_next_recording_mode: bool = False,
     model: str | None = None,
     preferred_language: str | None = None,
     llm_intent_enabled: bool | None = None,
@@ -232,6 +272,18 @@ def update_preferences(
     auto_run: bool | None = None,
 ) -> dict:
     payload = read_preferences()
+    if recording_mode is not None:
+        normalized_recording_mode = normalize_recording_mode(recording_mode)
+        if normalized_recording_mode is None:
+            raise ValueError(f"unsupported recording mode: {recording_mode}")
+        payload["recording"]["default_mode"] = normalized_recording_mode
+    if clear_next_recording_mode:
+        payload["recording"]["next_mode"] = None
+    if next_recording_mode is not None:
+        normalized_next_mode = normalize_recording_mode(next_recording_mode)
+        if normalized_next_mode is None:
+            raise ValueError(f"unsupported next recording mode: {next_recording_mode}")
+        payload["recording"]["next_mode"] = normalized_next_mode
     if model is not None:
         normalized_model = normalize_model_name(model)
         if normalized_model is None:

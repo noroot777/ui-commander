@@ -13,6 +13,60 @@ if (!window.__screenCommanderInjected) {
   let cueHintElement = null;
   let cueSequence = 0;
 
+  // ── rrweb DOM recording ──────────────────────────────────────────
+  let rrwebStopFn = null;
+  let rrwebEvents = [];
+  let rrwebFlushTimer = null;
+  const RRWEB_FLUSH_INTERVAL = 2000;
+  const RRWEB_FLUSH_SIZE = 50;
+
+  function flushRrwebEvents() {
+    if (rrwebEvents.length === 0) return;
+    const batch = rrwebEvents.splice(0);
+    try {
+      if (runtimeAvailable()) {
+        chrome.runtime.sendMessage({ type: "rrweb-events", events: batch });
+      }
+    } catch (_e) { /* extension context gone */ }
+  }
+
+  function startRrwebRecording() {
+    if (typeof rrweb === "undefined" || typeof rrweb.record !== "function") return;
+    rrwebEvents = [];
+    rrwebStopFn = rrweb.record({
+      emit(event) {
+        rrwebEvents.push(event);
+        if (rrwebEvents.length >= RRWEB_FLUSH_SIZE) {
+          flushRrwebEvents();
+        }
+      },
+      maskAllInputs: false,
+      blockClass: "ui-commander-cue",
+      inlineStylesheet: true,
+      recordCanvas: false,
+      sampling: {
+        mousemove: false,
+        mouseInteraction: true,
+        scroll: 150,
+        input: "last",
+      },
+    });
+    rrwebFlushTimer = setInterval(flushRrwebEvents, RRWEB_FLUSH_INTERVAL);
+  }
+
+  function stopRrwebRecording() {
+    if (rrwebFlushTimer) {
+      clearInterval(rrwebFlushTimer);
+      rrwebFlushTimer = null;
+    }
+    if (rrwebStopFn) {
+      rrwebStopFn();
+      rrwebStopFn = null;
+    }
+    flushRrwebEvents();
+  }
+  // ── end rrweb ────────────────────────────────────────────────────
+
   function runtimeAvailable() {
     try {
       return typeof chrome !== "undefined" && Boolean(chrome.runtime?.id);
@@ -382,10 +436,16 @@ if (!window.__screenCommanderInjected) {
     }
     if (message.type === "ui-commander-set-capture") {
       captureEnabled = message.enabled !== false;
+      if (captureEnabled) {
+        startRrwebRecording();
+      } else {
+        stopRrwebRecording();
+      }
       sendResponse({ ok: true, captureEnabled });
       return true;
     }
     if (message.type === "ui-commander-command-stop") {
+      stopRrwebRecording();
       chrome.runtime.sendMessage({ type: "command-stop" }, (response) => {
         if (chrome.runtime.lastError) {
           sendResponse({ ok: false, error: chrome.runtime.lastError.message });

@@ -72,7 +72,10 @@ def main() -> int:
     payload = {
         "session_id": session_dir.name,
         "session_dir": str(session_dir),
+        "recording_mode": summary.get("recording_mode"),
+        "dynamic_recording": summary.get("dynamic_recording"),
         "review": summary.get("review", {}),
+        "motion_replays": summary.get("motion_replays", {}),
         "llm_intent": summary.get("llm_intent", {}),
         "review_html": summary.get("artifacts", {}).get("review_html"),
         "agent_review_html": summary.get("artifacts", {}).get("agent_review_html"),

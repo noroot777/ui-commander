@@ -30,6 +30,8 @@ def session_payload(session_dir: Path) -> dict[str, object]:
         "session_id": session_dir.name,
         "session_dir": str(session_dir),
         "summary": str(summary_path),
+        "recording_mode": summary.get("recording_mode"),
+        "dynamic_recording": summary.get("dynamic_recording"),
         "review": summary.get("review", {}),
         "live_review": summary.get("live_review", {}),
         "orchestrator": summary.get("orchestrator", {}),
@@ -52,6 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--after-session", help="ignore this session id and anything older")
     parser.add_argument("--after-mtime-ns", type=int, default=None)
     parser.add_argument("--suppress-auto-run", choices=("on", "off"), default="on")
+    parser.add_argument("--recording-mode", choices=("standard", "dynamic"), help="queue recording mode for the next session")
     return parser.parse_args()
 
 
@@ -90,23 +93,38 @@ def main() -> int:
     baseline_ns = baseline_mtime_ns(args.after_session, args.after_mtime_ns)
     initial_session_ids = existing_session_ids()
     previous_auto_run = None
+    previous_next_recording_mode = None
+    found_session = False
 
     if args.suppress_auto_run == "on":
-        previous_auto_run = bool(read_preferences().get("orchestrator", {}).get("auto_run", True))
+        preferences = read_preferences()
+        previous_auto_run = bool(preferences.get("orchestrator", {}).get("auto_run", True))
+        previous_next_recording_mode = preferences.get("recording", {}).get("next_mode")
         if previous_auto_run:
             update_preferences(auto_run=False)
+    else:
+        previous_next_recording_mode = read_preferences().get("recording", {}).get("next_mode")
+
+    if args.recording_mode:
+        update_preferences(next_recording_mode=args.recording_mode)
 
     started = time.monotonic()
     try:
         while time.monotonic() - started <= args.timeout:
             for candidate in reversed(latest_candidates()):
                 if should_accept(candidate, baseline_ns, args.after_session, initial_session_ids):
+                    found_session = True
                     print(json.dumps(session_payload(candidate), indent=2, ensure_ascii=True))
                     return 0
             time.sleep(args.poll_interval)
     finally:
         if previous_auto_run is not None:
             update_preferences(auto_run=previous_auto_run)
+        if args.recording_mode and not found_session:
+            if previous_next_recording_mode:
+                update_preferences(next_recording_mode=str(previous_next_recording_mode))
+            else:
+                update_preferences(clear_next_recording_mode=True)
 
     print(json.dumps({"error": "timeout waiting for next finalized session"}, indent=2, ensure_ascii=True))
     return 1

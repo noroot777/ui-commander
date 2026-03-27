@@ -10,7 +10,12 @@ let nativeQueue = Promise.resolve();
 let finalizing = false;
 let keyframeTimer = null;
 let keyframeCaptureInFlight = false;
-const KEYFRAME_INTERVAL_MS = 900;
+let currentRecordingMode = "standard";
+let dynamicBurstTimers = [];
+const STANDARD_KEYFRAME_INTERVAL_MS = 3000;
+const DYNAMIC_KEYFRAME_INTERVAL_MS = 220;
+const DYNAMIC_BURST_DELAYS_MS = [120, 260, 420, 700, 980];
+const DYNAMIC_TRIGGER_TYPES = new Set(["click", "dblclick", "submit", "change", "keydown", "navigation"]);
 const OFFSCREEN_STOP_TIMEOUT_MS = 5000;
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 const MICROPHONE_HELPER_PATH = "microphone.html";
@@ -466,9 +471,12 @@ function startKeyframeCapture() {
   if (keyframeTimer) {
     clearInterval(keyframeTimer);
   }
+  const intervalMs = currentRecordingMode === "dynamic"
+    ? DYNAMIC_KEYFRAME_INTERVAL_MS
+    : STANDARD_KEYFRAME_INTERVAL_MS;
   keyframeTimer = setInterval(() => {
     void persistKeyframe("interval");
-  }, KEYFRAME_INTERVAL_MS);
+  }, intervalMs);
 }
 
 function stopKeyframeCapture() {
@@ -476,6 +484,26 @@ function stopKeyframeCapture() {
     clearInterval(keyframeTimer);
     keyframeTimer = null;
   }
+}
+
+function clearDynamicBurstCapture() {
+  for (const timer of dynamicBurstTimers) {
+    clearTimeout(timer);
+  }
+  dynamicBurstTimers = [];
+}
+
+function scheduleDynamicBurstCapture(triggerType) {
+  if (currentRecordingMode !== "dynamic" || !recording || !sessionId) {
+    return;
+  }
+  clearDynamicBurstCapture();
+  dynamicBurstTimers = DYNAMIC_BURST_DELAYS_MS.map((delayMs, index) => setTimeout(() => {
+    if (!recording || currentRecordingMode !== "dynamic") {
+      return;
+    }
+    void persistKeyframe(`dynamic:${triggerType}:${index + 1}`);
+  }, delayMs));
 }
 
 async function persistEventWithOptionalScreenshot(message, sender) {
@@ -542,6 +570,10 @@ async function attachDebugger(tabId) {
 }
 
 async function ensureContentScript(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    files: ["vendor/rrweb.min.js"]
+  });
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     files: ["content.js"]
@@ -633,12 +665,15 @@ async function startSession(tab, microphone = null, options = {}) {
   const response = await sendNative("start_session", {
     url: tab.url,
     title: tab.title,
-    extension_version: EXTENSION_VERSION
+    extension_version: EXTENSION_VERSION,
+    recording_mode: options.recordingMode || null
   });
+  currentRecordingMode = response?.recording_mode || "standard";
   sessionId = response.session_id;
   activeTabId = tab.id;
   recording = true;
   setRecordingBadge();
+  clearDynamicBurstCapture();
   startKeyframeCapture();
   await ensureContentScript(tab.id);
   await setContentCaptureState(tab.id, true);
@@ -651,6 +686,7 @@ async function startSession(tab, microphone = null, options = {}) {
       url: tab.url,
       title: tab.title,
       target: null,
+      value: `recording_mode:${currentRecordingMode}`,
       screenshot: null
     }
   });
@@ -797,11 +833,12 @@ async function stopSession() {
         body: copy.savingBody,
         hint: copy.savingHint,
         sticky: true,
-        maxStickyMs: 15000
+        maxStickyMs: 0
       }, "info");
     }
 
     stopKeyframeCapture();
+    clearDynamicBurstCapture();
     await persistKeyframe("stop");
 
     try {
@@ -894,12 +931,14 @@ async function stopSession() {
     throw error;
   } finally {
     stopKeyframeCapture();
+    clearDynamicBurstCapture();
     await detachDebugger();
     await closeOffscreenDocument();
     sessionId = null;
     activeTabId = null;
     recording = false;
     finalizing = false;
+    currentRecordingMode = "standard";
     setIdleBadge();
   }
 }
@@ -1103,14 +1142,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
+    if (message.type === "rrweb-events" && recording && sessionId) {
+      await sendNative("append_rrweb_events", {
+        session_id: sessionId,
+        events: message.events || []
+      });
+      sendResponse({ ok: true });
+      return;
+    }
+
     if (message.type === "content-event" && recording && sessionId) {
       await persistEventWithOptionalScreenshot(message, sender);
+      if (DYNAMIC_TRIGGER_TYPES.has(message.event?.type)) {
+        scheduleDynamicBurstCapture(message.event.type);
+      }
       sendResponse({ ok: true });
       return;
     }
 
     if (message.type === "popup-status") {
-      sendResponse({ ok: true, recording, finalizing, sessionId });
+      sendResponse({ ok: true, recording, finalizing, sessionId, recordingMode: currentRecordingMode });
       return;
     }
 

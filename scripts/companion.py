@@ -34,7 +34,12 @@ except Exception:  # noqa: BLE001
     ImageDraw = None
 
 from intent_fusion import prepare_intent_artifacts, preserve_resolved_resolution
-from preferences_store import read_preferences, normalize_language_tag
+from preferences_store import (
+    normalize_language_tag,
+    normalize_recording_mode,
+    read_preferences,
+    update_preferences,
+)
 from runtime_state import read_runtime_state, write_runtime_state
 from state_paths import (
     all_session_dirs,
@@ -87,9 +92,52 @@ SCRIPT_PATTERNS = {
     },
 }
 DEICTIC_PATTERNS = {
-    "zh": re.compile(r"这个地方|这一块|这两个|这个|这里|这边|这块|那个地方|那两个|那个|那里|那边"),
-    "en": re.compile(r"\b(this|these|that|those|here|there)\b", re.IGNORECASE),
+    "zh": re.compile(
+        r"这个地方|这一块|这两个|这个|这里|这边|这块|这儿"
+        r"|那个地方|那两个|那个|那里|那边|那块|那儿"
+        r"|上面|下面|左边|右边|上方|下方|左上|右上|左下|右下|旁边|中间"
+        r"|刚才|之前|前面那个|后面那个"
+    ),
+    "en": re.compile(
+        r"\b(this|these|that|those|here|there"
+        r"|above|below|left|right|top|bottom|next\s+to|beside|middle|center"
+        r"|just\s+now|earlier|previous|the\s+last\s+one)\b",
+        re.IGNORECASE,
+    ),
 }
+DEICTIC_CATEGORY = {
+    # Proximal (near speaker / current focus)
+    "这个地方": "proximal", "这一块": "proximal", "这两个": "proximal",
+    "这个": "proximal", "这里": "proximal", "这边": "proximal",
+    "这块": "proximal", "这儿": "proximal",
+    "this": "proximal", "these": "proximal", "here": "proximal",
+    # Distal (away from speaker / earlier focus)
+    "那个地方": "distal", "那两个": "distal", "那个": "distal",
+    "那里": "distal", "那边": "distal", "那块": "distal", "那儿": "distal",
+    "that": "distal", "those": "distal", "there": "distal",
+    # Spatial
+    "上面": "spatial", "下面": "spatial", "左边": "spatial", "右边": "spatial",
+    "上方": "spatial", "下方": "spatial", "左上": "spatial", "右上": "spatial",
+    "左下": "spatial", "右下": "spatial", "旁边": "spatial", "中间": "spatial",
+    "above": "spatial", "below": "spatial", "left": "spatial", "right": "spatial",
+    "top": "spatial", "bottom": "spatial", "middle": "spatial", "center": "spatial",
+    # Temporal
+    "刚才": "temporal", "之前": "temporal", "前面那个": "temporal", "后面那个": "temporal",
+    "earlier": "temporal", "previous": "temporal",
+}
+
+
+def classify_deictic_term(term: str) -> str:
+    """Return the deictic category for a matched term."""
+    key = term.strip().lower()
+    return DEICTIC_CATEGORY.get(key, "proximal")
+PREFERRED_LANGUAGE_FROM_SETTINGS = object()
+MOTION_REPLAY_TRIGGER_TYPES = {"click", "dblclick", "submit", "change", "keydown", "navigation"}
+MOTION_REPLAY_FRAME_EVENT_TYPES = {"screenshot_keyframe", "click", "dblclick", "change", "submit", "navigation"}
+MOTION_REPLAY_WINDOW_MS = 1400
+MOTION_REPLAY_PRE_TRIGGER_MS = 120
+MOTION_REPLAY_MAX_CLIPS = 4
+MOTION_REPLAY_MAX_FRAMES = 12
 
 
 def utc_now() -> str:
@@ -147,13 +195,20 @@ def macos_preferred_languages() -> list[str]:
     return re.findall(r'"([^"]+)"', result.stdout)
 
 
-def build_language_candidates() -> tuple[list[str], dict[str, object]]:
+def build_language_candidates(
+    preferred_language_override: object = PREFERRED_LANGUAGE_FROM_SETTINGS,
+) -> tuple[list[str], dict[str, object]]:
     preferences = read_preferences()
-    manual_language = normalize_language_tag(
-        preferences.get("transcription", {}).get("preferred_language")
-        if isinstance(preferences.get("transcription"), dict)
-        else None
-    )
+    if preferred_language_override is PREFERRED_LANGUAGE_FROM_SETTINGS:
+        manual_language = normalize_language_tag(
+            preferences.get("transcription", {}).get("preferred_language")
+            if isinstance(preferences.get("transcription"), dict)
+            else None
+        )
+    else:
+        manual_language = normalize_language_tag(
+            preferred_language_override if isinstance(preferred_language_override, str) else None
+        )
     profile = read_language_profile()
     profile_counts = profile.get("counts", {}) if isinstance(profile.get("counts"), dict) else {}
     sorted_profile = sorted(
@@ -251,6 +306,18 @@ def select_best_transcription_attempt(
     return best
 
 
+def should_skip_auto_transcription_attempt(attempt: dict, preferred_language: str | None) -> bool:
+    if not preferred_language:
+        return False
+    if attempt.get("requested_language") != preferred_language:
+        return False
+    text = (attempt.get("result", {}).get("text") or "").strip()
+    if not text:
+        return False
+    detected_language = normalize_language_tag(attempt.get("detected_language"))
+    return detected_language == preferred_language
+
+
 def update_language_profile(language: str | None, score: float) -> None:
     normalized = normalize_language_tag(language)
     if not normalized or score < 20:
@@ -312,6 +379,18 @@ def read_json(path: Path, default: object) -> object:
 
 def write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n")
+
+
+def resolve_recording_mode(payload: dict[str, object], preferences: dict[str, object]) -> tuple[str, str]:
+    requested_mode = normalize_recording_mode(payload.get("recording_mode"))
+    recording_preferences = preferences.get("recording", {}) if isinstance(preferences.get("recording"), dict) else {}
+    next_mode = normalize_recording_mode(recording_preferences.get("next_mode"))
+    default_mode = normalize_recording_mode(recording_preferences.get("default_mode")) or "standard"
+    if requested_mode:
+        return requested_mode, "payload"
+    if next_mode:
+        return next_mode, "preferences.next_mode"
+    return default_mode, "preferences.default_mode"
 
 
 def current_skill_extension_version() -> str | None:
@@ -973,40 +1052,105 @@ def aligned_transcript_segments(segments: list[dict], events: list[dict], langua
     return aligned
 
 
+def _find_word_time(segment: dict, term: str) -> int | None:
+    """Find the word-level timestamp for *term* inside a segment's word list.
+
+    Returns the absolute timestamp (ms) of the matching word, or None if word-level
+    timestamps are unavailable or the term is not found.
+    """
+    words = segment.get("words")
+    if not isinstance(words, list):
+        return None
+    term_lower = term.strip().lower()
+    for word_info in words:
+        word_text = str(word_info.get("word") or word_info.get("text") or "").strip().lower()
+        if term_lower in word_text or word_text in term_lower:
+            anchor_time_ms = int(segment.get("absolute_start_time_ms", 0)) - round(
+                float(segment.get("start_time", 0.0)) * 1000
+            )
+            return anchor_time_ms + round(float(word_info.get("start", 0.0)) * 1000)
+    return None
+
+
+def _window_for_category(category: str) -> tuple[int, int]:
+    """Return (pre_ms, post_ms) search window offsets for a deictic category."""
+    if category == "proximal":
+        return (600, 600)
+    if category == "distal":
+        return (2500, 400)
+    if category == "temporal":
+        return (4000, 400)
+    if category == "spatial":
+        return (1200, 1200)
+    return (900, 900)
+
+
 def build_referential_mentions(segments: list[dict], focus_regions: list[dict]) -> list[dict]:
     mentions: list[dict] = []
     for segment in segments:
         terms = [str(item) for item in segment.get("referential_terms", []) if item]
         if not terms:
             continue
-        window_start = int(segment.get("absolute_start_time_ms", 0)) - 900
-        window_end = int(segment.get("absolute_end_time_ms", 0)) + 900
-        candidates = []
-        for region in focus_regions:
-            region_start = int(region.get("start_time", 0))
-            region_end = int(region.get("end_time", 0))
-            overlap_ms = max(0, min(region_end, window_end) - max(region_start, window_start))
-            time_distance_ms = 0
-            if overlap_ms == 0:
-                if region_end < window_start:
-                    time_distance_ms = window_start - region_end
-                elif region_start > window_end:
-                    time_distance_ms = region_start - window_end
-            if overlap_ms == 0 and time_distance_ms > 2200:
-                continue
-            candidates.append(
+        per_term_candidates: list[dict] = []
+        for term in terms:
+            category = classify_deictic_term(term)
+            pre_ms, post_ms = _window_for_category(category)
+            word_time = _find_word_time(segment, term)
+            if word_time is not None:
+                anchor_ms = word_time
+            else:
+                anchor_ms = (
+                    int(segment.get("absolute_start_time_ms", 0))
+                    + int(segment.get("absolute_end_time_ms", 0))
+                ) // 2
+            window_start = anchor_ms - pre_ms
+            window_end = anchor_ms + post_ms
+            candidates = []
+            for region in focus_regions:
+                region_start = int(region.get("start_time", 0))
+                region_end = int(region.get("end_time", 0))
+                overlap_ms = max(0, min(region_end, window_end) - max(region_start, window_start))
+                time_distance_ms = 0
+                if overlap_ms == 0:
+                    if region_end < window_start:
+                        time_distance_ms = window_start - region_end
+                    elif region_start > window_end:
+                        time_distance_ms = region_start - window_end
+                if overlap_ms == 0 and time_distance_ms > 2200:
+                    continue
+                candidates.append(
+                    {
+                        "region_id": region.get("region_id"),
+                        "gesture": region.get("gesture"),
+                        "attention_score": region.get("attention_score"),
+                        "overlap_ms": overlap_ms,
+                        "time_distance_ms": time_distance_ms,
+                        "target": region.get("target"),
+                        "bbox": region.get("bbox"),
+                        "centroid": region.get("centroid"),
+                    }
+                )
+            candidates.sort(
+                key=lambda item: (
+                    -int(item.get("overlap_ms", 0)),
+                    int(item.get("time_distance_ms", 0)),
+                    -int(item.get("attention_score", 0) or 0),
+                )
+            )
+            per_term_candidates.append(
                 {
-                    "region_id": region.get("region_id"),
-                    "gesture": region.get("gesture"),
-                    "attention_score": region.get("attention_score"),
-                    "overlap_ms": overlap_ms,
-                    "time_distance_ms": time_distance_ms,
-                    "target": region.get("target"),
-                    "bbox": region.get("bbox"),
-                    "centroid": region.get("centroid"),
+                    "term": term,
+                    "category": category,
+                    "word_time_ms": word_time,
+                    "window_start": window_start,
+                    "window_end": window_end,
+                    "best_region_id": candidates[0]["region_id"] if candidates else None,
+                    "region_candidates": candidates[:3],
                 }
             )
-        candidates.sort(
+        # Aggregate: pick best region from all per-term candidates
+        all_candidates = [c for tc in per_term_candidates for c in tc.get("region_candidates", [])]
+        all_candidates.sort(
             key=lambda item: (
                 -int(item.get("overlap_ms", 0)),
                 int(item.get("time_distance_ms", 0)),
@@ -1018,12 +1162,13 @@ def build_referential_mentions(segments: list[dict], focus_regions: list[dict]) 
                 "segment_index": segment.get("segment_index"),
                 "text": segment.get("text"),
                 "terms": terms,
+                "per_term": per_term_candidates,
                 "start_time": segment.get("start_time"),
                 "end_time": segment.get("end_time"),
                 "absolute_start_time_ms": segment.get("absolute_start_time_ms"),
                 "absolute_end_time_ms": segment.get("absolute_end_time_ms"),
-                "best_region_id": candidates[0]["region_id"] if candidates else None,
-                "region_candidates": candidates[:3],
+                "best_region_id": all_candidates[0]["region_id"] if all_candidates else None,
+                "region_candidates": all_candidates[:3],
             }
         )
     return mentions
@@ -1159,6 +1304,9 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
     overlay_images = [str(item) for item in review.get("overlay_images", []) if item]
     crop_images = [str(item) for item in review.get("crop_images", []) if item]
     keyframes = [str(item) for item in review.get("keyframes", []) if item]
+    motion_replays = [
+        item for item in review.get("motion_replays", []) if isinstance(item, dict)
+    ]
     referential_mentions = [
         item for item in review.get("referential_mentions", []) if isinstance(item, dict)
     ]
@@ -1193,6 +1341,19 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
                 f"<section><h2>{html.escape(label)}</h2><div class=\"image-grid\">{figures}</div></section>"
             )
 
+    motion_cards = []
+    for clip in motion_replays:
+        gif_path = str(clip.get("gif") or "")
+        if not gif_path or not (session_path / gif_path).exists():
+            continue
+        motion_cards.append(
+            '<article class="mention-card">'
+            f'<div class="mention-text">Clip {html.escape(str(clip.get("clip_id") or "?"))}: {html.escape(str(clip.get("trigger_type") or "unknown"))}</div>'
+            f'<div class="mention-meta">Frames: {html.escape(str(clip.get("frame_count") or 0))} | Scroll delta Y: {html.escape(str(clip.get("scroll_delta_y") or 0))}</div>'
+            f'<figure class="image-card" style="margin-top:12px;"><img src="{html.escape(Path(gif_path).name if "/" not in gif_path else gif_path)}" alt="Motion replay"></figure>'
+            "</article>"
+        )
+
     mention_cards = []
     for mention in referential_mentions:
         terms = ", ".join(html.escape(str(item)) for item in mention.get("terms", []) if item)
@@ -1223,6 +1384,13 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
         + "".join(mention_cards)
         + "</div></section>"
         if mention_cards
+        else ""
+    )
+    motion_section = (
+        "<section><h2>Motion Replays</h2><div class=\"mention-list\">"
+        + "".join(motion_cards)
+        + "</div></section>"
+        if motion_cards
         else ""
     )
     resolved_intents = [
@@ -1275,6 +1443,41 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
         + ("<h2>Open Questions</h2><div class=\"mention-list\">" + "".join(ambiguity_cards) + "</div>" if ambiguity_cards else "")
         + "</section>"
     )
+    has_rrweb = summary.get("has_rrweb", False) or (session_path / "rrweb-events.jsonl").exists()
+    rrweb_section = ""
+    if has_rrweb:
+        rrweb_section = """
+    <section>
+      <h2>DOM Replay (rrweb)</h2>
+      <p class="hint">Full DOM recording captured via rrweb. Click play to replay the session.</p>
+      <div id="rrweb-player" style="margin-top:16px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff;"></div>
+      <script>
+        (function() {
+          var el = document.getElementById('rrweb-player');
+          fetch('rrweb-events.jsonl')
+            .then(function(r) { return r.text(); })
+            .then(function(text) {
+              var events = text.trim().split('\\n').map(function(line) {
+                try { return JSON.parse(line); } catch(e) { return null; }
+              }).filter(Boolean);
+              if (!events.length) {
+                el.innerHTML = '<p style="padding:16px;color:#5f6b62;">No rrweb events found.</p>';
+                return;
+              }
+              el.innerHTML = '<p style="padding:16px;color:#5f6b62;">' + events.length + ' DOM events recorded. Use rrweb-player to replay (load via CDN or local bundle).</p>'
+                + '<details style="padding:0 16px 16px;"><summary style="cursor:pointer;color:var(--accent);">Show raw event summary</summary>'
+                + '<pre style="max-height:300px;overflow:auto;font-size:12px;">'
+                + events.slice(0, 20).map(function(e) { return JSON.stringify({type:e.type,timestamp:e.timestamp}, null, 0); }).join('\\n')
+                + (events.length > 20 ? '\\n... (' + (events.length - 20) + ' more)' : '')
+                + '</pre></details>';
+            })
+            .catch(function() {
+              el.innerHTML = '<p style="padding:16px;color:#5f6b62;">Could not load rrweb events.</p>';
+            });
+        })();
+      </script>
+    </section>"""
+
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1425,15 +1628,21 @@ def generate_review_html(session_path: Path, summary: dict) -> Path:
           <div class="label">LLM Intent</div>
           <div class="value">{html.escape(llm_status)}</div>
         </div>
+        <div class="meta-card">
+          <div class="label">Recording Mode</div>
+          <div class="value">{html.escape(str(summary.get("recording_mode") or "standard"))}</div>
+        </div>
       </div>
     </section>
     <section>
       <h2>Recognized Transcript</h2>
       <p class="transcript">{transcript_html}</p>
     </section>
+    {motion_section}
     {llm_section}
     {referential_section}
     {"".join(image_cards)}
+    {rrweb_section}
   </main>
 </body>
 </html>
@@ -1454,6 +1663,8 @@ def start_session(payload: dict) -> dict:
     current_project_root = session_project_root()
     path = ensure_session(session_id, project_root=current_project_root)
     extension = extension_version_status(payload.get("extension_version"))
+    preferences = read_preferences()
+    recording_mode, recording_mode_source = resolve_recording_mode(payload, preferences)
     meta = {
         "session_id": session_id,
         "created_at": utc_now(),
@@ -1462,9 +1673,16 @@ def start_session(payload: dict) -> dict:
         "title": payload.get("title"),
         "project_root": current_project_root or "auto",
         "project_slug": project_slug(current_project_root),
+        "recording": {
+            "mode": recording_mode,
+            "dynamic": recording_mode == "dynamic",
+            "source": recording_mode_source,
+        },
         "extension": extension,
     }
     write_json(path / "session.json", meta)
+    if recording_mode_source == "preferences.next_mode":
+        update_preferences(clear_next_recording_mode=True)
     mark_extension_confirmed(session_id, payload.get("url"), payload.get("title"))
     audio = start_native_audio_capture(session_id)
     if audio.get("ok"):
@@ -1486,6 +1704,8 @@ def start_session(payload: dict) -> dict:
         "session_id": session_id,
         "path": str(path),
         "extension": extension,
+        "recording_mode": recording_mode,
+        "dynamic_recording": recording_mode == "dynamic",
         "native_audio": {
             "enabled": bool(audio.get("ok")),
             "device_name": audio.get("device_name"),
@@ -1506,6 +1726,18 @@ def append_event(payload: dict) -> dict:
         log_line(f"append_event session_id={session_id} type={event_type!r}")
     path = ensure_session(session_id)
     append_jsonl(path / "events.jsonl", payload["event"])
+    return {"ok": True}
+
+
+def append_rrweb_events(payload: dict) -> dict:
+    session_id = payload["session_id"]
+    events = payload.get("events", [])
+    log_line(f"append_rrweb_events session_id={session_id} count={len(events)}")
+    path = ensure_session(session_id)
+    rrweb_path = path / "rrweb-events.jsonl"
+    with rrweb_path.open("a", encoding="utf-8") as f:
+        for ev in events:
+            f.write(json.dumps(ev, ensure_ascii=False) + "\n")
     return {"ok": True}
 
 
@@ -1574,6 +1806,7 @@ def dependency_status() -> dict[str, object]:
     return {
         "whisper_installed": whisper_installed,
         "ffmpeg_available": ffmpeg_available,
+        "pillow_available": Image is not None,
         "transcription_ready": whisper_installed and ffmpeg_available,
     }
 
@@ -1814,7 +2047,10 @@ def stop_all_native_audio_captures() -> None:
             log_line(f"native_audio_cleanup_failed session_id={session_id} error={exc!r}")
 
 
-def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
+def transcribe_audio(
+    audio_path: Path,
+    preferred_language_override: object = PREFERRED_LANGUAGE_FROM_SETTINGS,
+) -> tuple[str, list[dict], dict]:
     whisper_spec = importlib.util.find_spec("whisper")
     if whisper_spec is None:
         return "", [], {
@@ -1853,14 +2089,20 @@ def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
     with io.StringIO() as suppressed_stdout, io.StringIO() as suppressed_stderr:
         with contextlib.redirect_stdout(suppressed_stdout), contextlib.redirect_stderr(suppressed_stderr):
             model = whisper.load_model(model_name)
-            candidate_languages, evidence = build_language_candidates()
+            candidate_languages, evidence = build_language_candidates(
+                preferred_language_override=preferred_language_override
+            )
             attempts: list[dict] = []
+            preferred_candidate = normalize_language_tag(
+                evidence.get("manual_preferred_language") or evidence.get("trusted_preferred_language")
+            )
             for candidate in [*candidate_languages, None]:
                 options = {
                     "verbose": False,
                     "temperature": 0,
                     "condition_on_previous_text": False,
                     "fp16": False,
+                    "word_timestamps": True,
                 }
                 if candidate:
                     options["language"] = candidate
@@ -1878,10 +2120,9 @@ def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
                         "result": result,
                     }
                 )
+                if candidate is not None and should_skip_auto_transcription_attempt(attempts[-1], preferred_candidate):
+                    break
 
-    preferred_candidate = normalize_language_tag(
-        evidence.get("manual_preferred_language") or evidence.get("trusted_preferred_language")
-    )
     best_attempt = select_best_transcription_attempt(attempts, preferred_language=preferred_candidate)
     result = best_attempt["result"]
     transcript = (result.get("text") or "").strip()
@@ -1890,6 +2131,14 @@ def transcribe_audio(audio_path: Path) -> tuple[str, list[dict], dict]:
             "start_time": round(segment.get("start", 0.0), 2),
             "end_time": round(segment.get("end", 0.0), 2),
             "text": (segment.get("text") or "").strip(),
+            "words": [
+                {
+                    "word": (w.get("word") or "").strip(),
+                    "start": round(w.get("start", 0.0), 3),
+                    "end": round(w.get("end", 0.0), 3),
+                }
+                for w in (segment.get("words") or [])
+            ],
         }
         for segment in result.get("segments", [])
     ]
@@ -2100,34 +2349,20 @@ def build_timeline(events: list[dict]) -> list[dict]:
     return steps
 
 
-def finalize_session(payload: dict) -> dict:
-    session_id = payload["session_id"]
-    log_line(f"finalize_session session_id={session_id}")
-    path = ensure_session(session_id)
-    native_audio = stop_native_audio_capture(session_id)
-    if native_audio.get("audio"):
-        append_jsonl(
-            path / "events.jsonl",
-            {
-                "id": f"native-audio-stop-{current_time_ms()}",
-                "time": current_time_ms(),
-                "type": "audio_status",
-                "url": None,
-                "title": None,
-                "target": None,
-                "value": f"native_saved:{native_audio.get('size', 0)}:{native_audio.get('device_name')}:{native_audio.get('device_index')}",
-                "screenshot": None,
-            },
-        )
-    events_path = path / "events.jsonl"
-    events = load_jsonl(events_path)
-    console_logs = load_jsonl(path / "console_logs.jsonl")
-    network_logs = load_jsonl(path / "network_logs.jsonl")
-    dependencies = dependency_status()
+def resolve_audio_artifact_path(path: Path) -> Path | None:
+    for candidate in (path / "audio" / "mic.wav", path / "audio" / "mic.webm"):
+        if candidate.exists() and candidate.stat().st_size > 0:
+            return candidate
+    return None
 
-    timeline = build_timeline(events)
-    focus_regions = build_focus_regions(path, events)
-    for item in timeline:
+
+def attach_timeline_context(
+    timeline: list[dict],
+    console_logs: list[dict],
+    network_logs: list[dict],
+) -> list[dict]:
+    enriched_timeline = [dict(item) for item in timeline]
+    for item in enriched_timeline:
         nearby_console = nearby_entries(console_logs, item.get("time"), 2000)
         nearby_network = nearby_entries(network_logs, item.get("time"), 2000)
         item["console"] = {
@@ -2138,45 +2373,155 @@ def finalize_session(payload: dict) -> dict:
             "count": len(nearby_network),
             "failures": [entry for entry in nearby_network if entry.get("type") == "loadingFailed"],
         }
-    write_json(path / "interaction_timeline.json", timeline)
-    write_json(path / "focus_regions.json", focus_regions)
+    return enriched_timeline
 
-    transcript = payload.get("transcript", "").strip()
-    segments = payload.get("segments", [])
-    transcription = {
-        "selected_language": None,
-        "detected_language": None,
-        "selection_mode": "not_requested",
-        "candidate_languages": [],
-        "language_evidence": {},
-        "attempts": [],
-    }
 
-    wav_audio_path = path / "audio" / "mic.wav"
-    webm_audio_path = path / "audio" / "mic.webm"
-    audio_path = wav_audio_path if wav_audio_path.exists() and wav_audio_path.stat().st_size > 0 else webm_audio_path
-    transcript_status = "not_requested"
-    if audio_path.exists() and not transcript:
-        if dependencies["transcription_ready"]:
-            try:
-                transcript, segments, transcription = transcribe_audio(audio_path)
-                transcript_status = "transcribed" if transcript else "audio_present_but_empty"
-            except Exception as exc:  # noqa: BLE001
-                log_line(f"transcription_error session_id={session_id} error={exc!r}")
-                transcript_status = "transcription_error"
-        else:
-            transcript_status = "missing_dependencies"
-    elif audio_path.exists():
-        transcript_status = "provided"
-    else:
-        transcript_status = "no_audio"
+def unique_event_frames(events: list[dict], session_path: Path) -> list[dict[str, object]]:
+    frames: list[dict[str, object]] = []
+    seen_paths: set[str] = set()
+    for event in events:
+        screenshot = str(event.get("screenshot") or "").strip()
+        if not screenshot or screenshot in seen_paths:
+            continue
+        screenshot_path = session_path / screenshot
+        if not screenshot_path.exists():
+            continue
+        seen_paths.add(screenshot)
+        frames.append(
+            {
+                "time": int(event.get("time", 0) or 0),
+                "relative_path": screenshot,
+                "path": screenshot_path,
+                "event_type": str(event.get("type") or ""),
+            }
+        )
+    return frames
 
-    aligned_segments = aligned_transcript_segments(
-        segments=segments,
-        events=events,
-        language=transcription.get("selected_language") if isinstance(transcription, dict) else None,
+
+def save_motion_gif(output_path: Path, frame_paths: list[Path], *, duration_ms: int = 140) -> str | None:
+    if Image is None or len(frame_paths) < 2:
+        return None
+    images = []
+    for frame_path in frame_paths:
+        try:
+            with Image.open(frame_path) as frame:
+                images.append(frame.convert("P", palette=Image.ADAPTIVE))
+        except Exception:  # noqa: BLE001
+            continue
+    if len(images) < 2:
+        return None
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    first, rest = images[0], images[1:]
+    first.save(
+        output_path,
+        save_all=True,
+        append_images=rest,
+        duration=duration_ms,
+        loop=0,
+        optimize=False,
     )
-    referential_mentions = build_referential_mentions(aligned_segments, focus_regions)
+    return str(output_path)
+
+
+def build_motion_replays(
+    *,
+    session_path: Path,
+    events: list[dict],
+    dependencies: dict[str, object],
+    recording_mode: str,
+) -> dict[str, object]:
+    motion_path = session_path / "motion_replays.json"
+    base_payload: dict[str, object] = {
+        "mode": recording_mode,
+        "enabled": recording_mode == "dynamic",
+        "clip_count": 0,
+        "generated_gif_count": 0,
+        "clips": [],
+        "artifact_path": str(motion_path),
+    }
+    if recording_mode != "dynamic":
+        write_json(motion_path, base_payload)
+        return base_payload
+
+    clips: list[dict[str, object]] = []
+    triggers = [
+        event
+        for event in events
+        if str(event.get("type") or "") in MOTION_REPLAY_TRIGGER_TYPES
+    ]
+    for event in triggers[:MOTION_REPLAY_MAX_CLIPS]:
+        event_time = int(event.get("time", 0) or 0)
+        window_start = event_time - MOTION_REPLAY_PRE_TRIGGER_MS
+        window_end = event_time + MOTION_REPLAY_WINDOW_MS
+        window_events = [
+            item
+            for item in events
+            if window_start <= int(item.get("time", 0) or 0) <= window_end
+        ]
+        frame_events = [
+            item
+            for item in window_events
+            if str(item.get("type") or "") in MOTION_REPLAY_FRAME_EVENT_TYPES
+        ]
+        frames = unique_event_frames(frame_events, session_path)[:MOTION_REPLAY_MAX_FRAMES]
+        if len(frames) < 2:
+            continue
+
+        scroll_values = [
+            int(item.get("scrollY", 0) or 0)
+            for item in window_events
+            if item.get("type") == "scroll"
+        ]
+        gif_relative_path = None
+        gif_absolute_path = None
+        if bool(dependencies.get("pillow_available", Image is not None)):
+            gif_relative_path = f"motion_replays/clip-{len(clips) + 1}.gif"
+            gif_absolute_path = save_motion_gif(
+                session_path / gif_relative_path,
+                [Path(frame["path"]) for frame in frames],
+            )
+            if gif_absolute_path is None:
+                gif_relative_path = None
+
+        clips.append(
+            {
+                "clip_id": len(clips) + 1,
+                "trigger_event_id": event.get("id"),
+                "trigger_type": event.get("type"),
+                "trigger_time": event_time,
+                "window_start": window_start,
+                "window_end": window_end,
+                "window_ms": MOTION_REPLAY_WINDOW_MS,
+                "scroll_delta_y": (scroll_values[-1] - scroll_values[0]) if len(scroll_values) >= 2 else 0,
+                "trigger_target": event.get("target"),
+                "frame_count": len(frames),
+                "frames": [
+                    {
+                        "time": frame["time"],
+                        "event_type": frame["event_type"],
+                        "path": str(frame["relative_path"]),
+                    }
+                    for frame in frames
+                ],
+                "gif": gif_relative_path,
+            }
+        )
+
+    payload = {
+        **base_payload,
+        "clip_count": len(clips),
+        "generated_gif_count": len([item for item in clips if item.get("gif")]),
+        "clips": clips,
+        "artifact_path": str(motion_path),
+    }
+    write_json(motion_path, payload)
+    return payload
+
+
+def enrich_segments_with_mentions(
+    aligned_segments: list[dict],
+    referential_mentions: list[dict],
+) -> list[dict]:
     mentions_by_segment = {
         int(item.get("segment_index", -1)): item
         for item in referential_mentions
@@ -2194,9 +2539,66 @@ def finalize_session(payload: dict) -> dict:
                 if candidate.get("region_id") is not None
             ]
         enriched_segments.append(enriched_segment)
+    return enriched_segments
 
+
+def build_review_focus_regions(focus_regions: list[dict]) -> list[dict]:
+    review_items = []
+    for item in focus_regions:
+        artifacts = item.get("artifacts", {}) if isinstance(item.get("artifacts"), dict) else {}
+        target = item.get("target") if isinstance(item.get("target"), dict) else {}
+        review_items.append(
+            {
+                "region_id": item.get("region_id"),
+                "gesture": item.get("gesture"),
+                "attention_score": item.get("attention_score"),
+                "start_time": item.get("start_time"),
+                "end_time": item.get("end_time"),
+                "target": {
+                    "tag": target.get("tag"),
+                    "text": target.get("text"),
+                    "selector": target.get("selector"),
+                },
+                "artifacts": {
+                    "overlay": artifacts.get("overlay"),
+                    "crop": artifacts.get("crop"),
+                    "keyframe": artifacts.get("keyframe"),
+                },
+            }
+        )
+    return review_items
+
+
+def persist_session_artifacts(
+    *,
+    session_id: str,
+    path: Path,
+    events_path: Path,
+    events: list[dict],
+    console_logs: list[dict],
+    network_logs: list[dict],
+    dependencies: dict[str, object],
+    timeline: list[dict],
+    focus_regions: list[dict],
+    transcript: str,
+    segments: list[dict],
+    transcription: dict[str, object],
+    transcript_status: str,
+    update_meta: bool,
+) -> dict:
+    aligned_segments = aligned_transcript_segments(
+        segments=segments,
+        events=events,
+        language=transcription.get("selected_language") if isinstance(transcription, dict) else None,
+    )
+    referential_mentions = build_referential_mentions(aligned_segments, focus_regions)
+    enriched_segments = enrich_segments_with_mentions(aligned_segments, referential_mentions)
+
+    transcript_path = path / "transcript.txt"
     if transcript:
-        (path / "transcript.txt").write_text(transcript + "\n", encoding="utf-8")
+        transcript_path.write_text(transcript + "\n", encoding="utf-8")
+    elif transcript_path.exists():
+        transcript_path.unlink()
 
     write_json(path / "segments.json", enriched_segments)
     write_json(path / "referential_mentions.json", referential_mentions)
@@ -2222,24 +2624,48 @@ def finalize_session(payload: dict) -> dict:
     if preserved_intent:
         llm_intent = preserved_intent
         log_line(
-            "finalize_session preserve_resolved_intent "
+            "persist_session_artifacts preserve_resolved_intent "
             f"session_id={session_id} evidence_hash={llm_evidence.get('evidence_hash')!r}"
         )
     write_json(path / "intent_evidence.json", llm_evidence)
     write_json(path / "intent_resolution.json", llm_intent)
 
     meta = read_json(path / "session.json", {})
-    if isinstance(meta, dict):
+    if not isinstance(meta, dict):
+        meta = {}
+    if update_meta:
         meta["status"] = "completed"
         meta["completed_at"] = utc_now()
-        meta["extension"] = extension_version_status(meta.get("extension", {}).get("recorded_version") if isinstance(meta.get("extension"), dict) else None)
+        meta["extension"] = extension_version_status(
+            meta.get("extension", {}).get("recorded_version")
+            if isinstance(meta.get("extension"), dict)
+            else None
+        )
         write_json(path / "session.json", meta)
 
-    extension = meta.get("extension", {}) if isinstance(meta, dict) and isinstance(meta.get("extension"), dict) else extension_version_status(None)
+    recording_meta = meta.get("recording", {}) if isinstance(meta.get("recording"), dict) else {}
+    recording_mode = normalize_recording_mode(recording_meta.get("mode")) or "standard"
+    motion_replays = build_motion_replays(
+        session_path=path,
+        events=events,
+        dependencies=dependencies,
+        recording_mode=recording_mode,
+    )
 
+    extension = (
+        meta.get("extension", {})
+        if isinstance(meta.get("extension"), dict)
+        else extension_version_status(None)
+    )
+    existing_summary = read_json(path / "summary.json", {})
+    if not isinstance(existing_summary, dict):
+        existing_summary = {}
+    audio_path = resolve_audio_artifact_path(path)
     summary = {
         "session_id": session_id,
-        "status": "completed",
+        "status": meta.get("status") or "completed",
+        "recording_mode": recording_mode,
+        "dynamic_recording": recording_mode == "dynamic",
         "event_count": len(events),
         "step_count": len(timeline),
         "focus_region_count": len(focus_regions),
@@ -2250,10 +2676,14 @@ def finalize_session(payload: dict) -> dict:
         "transcript_status": transcript_status,
         "transcription": transcription,
         "llm_intent_status": str(llm_intent.get("status") or "not_run"),
-        "llm_resolved_intent_count": len(llm_intent.get("resolved_intents", [])) if isinstance(llm_intent.get("resolved_intents"), list) else 0,
+        "llm_resolved_intent_count": len(llm_intent.get("resolved_intents", []))
+        if isinstance(llm_intent.get("resolved_intents"), list)
+        else 0,
         "llm_intent": llm_intent,
         "dependencies": dependencies,
         "extension": extension,
+        "motion_replays": motion_replays,
+        "has_rrweb": (path / "rrweb-events.jsonl").exists(),
         "review": {
             "transcript": transcript,
             "overlay_images": [
@@ -2271,8 +2701,10 @@ def finalize_session(payload: dict) -> dict:
                 for item in focus_regions
                 if item.get("artifacts", {}).get("keyframe")
             ],
+            "focus_regions": build_review_focus_regions(focus_regions),
             "referential_mentions": referential_mentions,
             "intent_resolution": llm_intent,
+            "motion_replays": motion_replays.get("clips", []),
         },
         "artifacts": {
             "session": str(path / "session.json"),
@@ -2282,21 +2714,177 @@ def finalize_session(payload: dict) -> dict:
             "events": str(events_path),
             "console_logs": str(path / "console_logs.jsonl"),
             "network_logs": str(path / "network_logs.jsonl"),
-            "audio": str(audio_path),
+            "audio": str(audio_path) if audio_path else None,
             "transcript": str(path / "transcript.txt"),
             "segments": str(path / "segments.json"),
             "referential_mentions": str(path / "referential_mentions.json"),
             "intent_evidence": str(path / "intent_evidence.json"),
             "intent_resolution": str(path / "intent_resolution.json"),
             "screenshots_dir": str(path / "screenshots"),
+            "motion_replays": str(path / "motion_replays.json"),
+            "rrweb_events": str(path / "rrweb-events.jsonl"),
         },
     }
+    for key in ("live_review", "orchestrator"):
+        if isinstance(existing_summary.get(key), dict):
+            summary[key] = existing_summary[key]
+    existing_artifacts = existing_summary.get("artifacts", {})
+    if isinstance(existing_artifacts, dict) and existing_artifacts.get("agent_review_html"):
+        summary["artifacts"]["agent_review_html"] = existing_artifacts.get("agent_review_html")
+
     review_html_path = generate_review_html(path, summary)
     summary["review"]["html"] = str(review_html_path)
     summary["artifacts"]["review_html"] = str(review_html_path)
-    # Persist the core review bundle before optional follow-on work so sessions remain usable
-    # even if the live server or orchestrator step is slow or fails.
     write_json(path / "summary.json", summary)
+    return summary
+
+
+def retranscribe_session(payload: dict) -> dict:
+    session_id = str(payload.get("session_id") or "").strip()
+    if not session_id:
+        raise ValueError("missing session_id")
+    raw_language = payload.get("language")
+    if raw_language is not None and not isinstance(raw_language, str):
+        raise ValueError("language must be a string")
+    selected_language = (raw_language or "").strip().lower()
+    preferred_language_override: object = PREFERRED_LANGUAGE_FROM_SETTINGS
+    normalized_language = None
+    if selected_language == "auto":
+        preferred_language_override = None
+    elif selected_language:
+        normalized_language = normalize_language_tag(selected_language)
+        if normalized_language is None:
+            raise ValueError(f"unsupported language tag: {raw_language}")
+        preferred_language_override = normalized_language
+
+    path = ensure_session(session_id)
+    audio_path = resolve_audio_artifact_path(path)
+    if audio_path is None:
+        raise RuntimeError("no audio artifact available for this session")
+
+    events_path = path / "events.jsonl"
+    events = load_jsonl(events_path)
+    console_logs = load_jsonl(path / "console_logs.jsonl")
+    network_logs = load_jsonl(path / "network_logs.jsonl")
+    dependencies = dependency_status()
+    if not dependencies.get("transcription_ready"):
+        raise RuntimeError("transcription dependencies are not ready")
+
+    timeline = read_json(path / "interaction_timeline.json", [])
+    if not isinstance(timeline, list) or not timeline:
+        timeline = attach_timeline_context(build_timeline(events), console_logs, network_logs)
+        write_json(path / "interaction_timeline.json", timeline)
+
+    focus_regions = read_json(path / "focus_regions.json", [])
+    if not isinstance(focus_regions, list) or not focus_regions:
+        focus_regions = build_focus_regions(path, events)
+        write_json(path / "focus_regions.json", focus_regions)
+
+    transcript, segments, transcription = transcribe_audio(
+        audio_path,
+        preferred_language_override=preferred_language_override,
+    )
+    transcript_status = "transcribed" if transcript else "audio_present_but_empty"
+    summary = persist_session_artifacts(
+        session_id=session_id,
+        path=path,
+        events_path=events_path,
+        events=events,
+        console_logs=console_logs,
+        network_logs=network_logs,
+        dependencies=dependencies,
+        timeline=timeline,
+        focus_regions=focus_regions,
+        transcript=transcript,
+        segments=segments,
+        transcription=transcription,
+        transcript_status=transcript_status,
+        update_meta=False,
+    )
+    if normalized_language:
+        update_preferences(preferred_language=normalized_language)
+    return {
+        "ok": True,
+        "summary_path": str(path / "summary.json"),
+        "review_html": str(path / "review.html"),
+        "summary": summary,
+    }
+
+
+def finalize_session(payload: dict) -> dict:
+    session_id = payload["session_id"]
+    log_line(f"finalize_session session_id={session_id}")
+    path = ensure_session(session_id)
+    native_audio = stop_native_audio_capture(session_id)
+    if native_audio.get("audio"):
+        append_jsonl(
+            path / "events.jsonl",
+            {
+                "id": f"native-audio-stop-{current_time_ms()}",
+                "time": current_time_ms(),
+                "type": "audio_status",
+                "url": None,
+                "title": None,
+                "target": None,
+                "value": f"native_saved:{native_audio.get('size', 0)}:{native_audio.get('device_name')}:{native_audio.get('device_index')}",
+                "screenshot": None,
+            },
+        )
+    events_path = path / "events.jsonl"
+    events = load_jsonl(events_path)
+    console_logs = load_jsonl(path / "console_logs.jsonl")
+    network_logs = load_jsonl(path / "network_logs.jsonl")
+    dependencies = dependency_status()
+
+    timeline = attach_timeline_context(build_timeline(events), console_logs, network_logs)
+    focus_regions = build_focus_regions(path, events)
+    write_json(path / "interaction_timeline.json", timeline)
+    write_json(path / "focus_regions.json", focus_regions)
+
+    transcript = payload.get("transcript", "").strip()
+    segments = payload.get("segments", [])
+    transcription = {
+        "selected_language": None,
+        "detected_language": None,
+        "selection_mode": "not_requested",
+        "candidate_languages": [],
+        "language_evidence": {},
+        "attempts": [],
+    }
+
+    audio_path = resolve_audio_artifact_path(path)
+    transcript_status = "not_requested"
+    if audio_path is not None and not transcript:
+        if dependencies["transcription_ready"]:
+            try:
+                transcript, segments, transcription = transcribe_audio(audio_path)
+                transcript_status = "transcribed" if transcript else "audio_present_but_empty"
+            except Exception as exc:  # noqa: BLE001
+                log_line(f"transcription_error session_id={session_id} error={exc!r}")
+                transcript_status = "transcription_error"
+        else:
+            transcript_status = "missing_dependencies"
+    elif audio_path is not None:
+        transcript_status = "provided"
+    else:
+        transcript_status = "no_audio"
+    summary = persist_session_artifacts(
+        session_id=session_id,
+        path=path,
+        events_path=events_path,
+        events=events,
+        console_logs=console_logs,
+        network_logs=network_logs,
+        dependencies=dependencies,
+        timeline=timeline,
+        focus_regions=focus_regions,
+        transcript=transcript,
+        segments=segments,
+        transcription=transcription,
+        transcript_status=transcript_status,
+        update_meta=True,
+    )
+    review_html_path = Path(str(summary.get("artifacts", {}).get("review_html") or path / "review.html"))
     review_opened = try_open_local_file(review_html_path)
     log_line(f"finalize_session review_ready session_id={session_id} opened={review_opened}")
     log_line(f"finalize_session ensure_live_server_start session_id={session_id}")
@@ -2344,6 +2932,8 @@ def handle_message(message: dict) -> dict:
         return start_session(payload)
     if command == "append_event":
         return append_event(payload)
+    if command == "append_rrweb_events":
+        return append_rrweb_events(payload)
     if command == "append_console":
         return append_log(payload, "console_logs")
     if command == "append_network":

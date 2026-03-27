@@ -7,6 +7,8 @@ description: Capture a frontend bug reproduction inside the user's existing Chro
 
 Use this skill when the user wants to show a frontend bug in their normal Chrome session instead of describing it in text, or when the user already has a UI Commander session URL and wants the agent to continue from that recorded session. Also trigger it when the user pastes a ready-made prompt such as `使用ui commander分析 <session-url>` or `使用ui commander分析并直接修复 <session-url>`.
 
+Treat `dynamic recording`, `start dynamic recording`, `动态录制`, `启动动态录制`, or equivalent wording as an explicit recording mode request. When the user starts with that wording, begin dynamic recording directly for the next session instead of merely inferring a dynamic bug from words like `jump`, `jitter`, or `flicker`.
+
 This skill is designed to work across local coding-agent hosts such as Codex, Claude Code, OpenCode, and similar environments. The default path should stay host-agnostic: use the current conversation, current workspace, and local helper scripts. Treat any detached background runner as optional and platform-specific.
 
 The skill has one job: convert a narrated browser reproduction into structured session artifacts.
@@ -37,15 +39,16 @@ If the user gives a language such as `zh`, `en`, or `ja`, pass it with `--langua
 
 1. If the user already provided a UI Commander session URL or session id, resolve that session immediately and continue from its artifacts. Do not ask the user to record again unless they explicitly want a fresh repro.
 2. Otherwise, default the target project to the current workspace. Only override it when the user explicitly wants to send the session to a different repo.
-3. Keep saved transcription preferences as-is by default. Only ask for narration language when it is clearly missing and will block understanding later.
-4. Do not ask about transcription models by default. Only change models when the current transcript quality is poor or the user explicitly asks. When the user chooses a stronger model, persist that model so future sessions keep using it afterwards.
-5. Enter blocking watch mode before the user records. This is the default and only primary interaction mode for this skill.
-6. When watch mode starts, bind the current workspace as the active project root for the upcoming session.
-7. Once recording can begin, send one short bold reminder in the IDE chat. Keep it visually prominent and concise, and always adapt the shortcuts to the user's platform. Example on macOS: `**现在请切到 Chrome，按 Option+S 开始，按 Option+E 结束。**` Example on Windows or Linux: `**现在请切到 Chrome，按 Alt+Shift+S 开始，按 Alt+Shift+E 结束。**`
-8. Tell the user to focus the target Chrome tab, then use the platform-appropriate shortcuts to record: `Option+S` and `Option+E` on macOS, `Alt+Shift+S` and `Alt+Shift+E` on Windows or Linux.
-9. If start or stop fails, then run local diagnosis and repair: use `scripts/status.py` to inspect readiness and `scripts/setup.py` to repair the bridge when needed.
-10. Wait only for the next newly created finalized session in the current conversation. Do not reuse an older session just because its files changed or the conversation was reopened.
-11. Use the current conversation to analyze and, when appropriate, apply code changes. Do not rely on a detached background task or any platform-specific CLI runner as the primary path.
+3. If the user explicitly requested `dynamic recording` / `动态录制` or equivalent wording, mark the upcoming session as dynamic recording before watch mode starts. This is a direct mode switch, not a heuristic. Use `scripts/watch_next_session.py --recording-mode dynamic` for that run.
+4. Keep saved transcription preferences as-is by default. Only ask for narration language when it is clearly missing and will block understanding later.
+5. Do not ask about transcription models by default. Only change models when the current transcript quality is poor or the user explicitly asks. When the user chooses a stronger model, persist that model so future sessions keep using it afterwards.
+6. Enter blocking watch mode before the user records. This is the default and only primary interaction mode for this skill.
+7. When watch mode starts, bind the current workspace as the active project root for the upcoming session.
+8. Once recording can begin, send one short bold reminder in the IDE chat. Keep it visually prominent and concise, and always adapt the shortcuts to the user's platform. Example on macOS: `**现在请切到 Chrome，按 Option+S 开始，按 Option+E 结束。**` Example on Windows or Linux: `**现在请切到 Chrome，按 Alt+Shift+S 开始，按 Alt+Shift+E 结束。**`
+9. Tell the user to focus the target Chrome tab, then use the platform-appropriate shortcuts to record: `Option+S` and `Option+E` on macOS, `Alt+Shift+S` and `Alt+Shift+E` on Windows or Linux.
+10. If start or stop fails, then run local diagnosis and repair: use `scripts/status.py` to inspect readiness and `scripts/setup.py` to repair the bridge when needed.
+11. Wait only for the next newly created finalized session in the current conversation. Do not reuse an older session just because its files changed or the conversation was reopened.
+12. Use the current conversation to analyze and, when appropriate, apply code changes. Do not rely on a detached background task or any platform-specific CLI runner as the primary path.
 
 ## Existing Session URLs
 
@@ -73,6 +76,7 @@ Then persist the structured result with:
 
 Use blocking watch mode on every normal trigger:
 - run `<python-bin> <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id>`
+- if the user explicitly requested dynamic recording, run `<python-bin> <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id> --recording-mode dynamic>`
 - this temporarily suppresses background `auto_run` while waiting for the next finalized session
 - it also binds the current workspace as the active project root, so the raw session is grouped under that project instead of `unassigned`
 - after the next session arrives, continue in the current conversation using that session's artifacts
@@ -100,6 +104,12 @@ Use blocking watch mode on every normal trigger:
 
 ```bash
 <python-bin> <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id>
+```
+
+If the user explicitly asks for dynamic recording, use:
+
+```bash
+<python-bin> <skill-dir>/scripts/watch_next_session.py --after-session <latest-known-session-id> --recording-mode dynamic
 ```
 
 This temporarily suppresses background `auto_run` while waiting for the next finalized session and binds the current workspace as the active project root.
@@ -160,12 +170,15 @@ Recording is controlled by shortcuts while Chrome is focused:
 - narrate the expected behavior and the actual behavior
 - press the platform stop shortcut to finish: `Option+E` on macOS, `Alt+Shift+E` on Windows or Linux
 
+If the user explicitly says `dynamic recording` / `动态录制`, treat that as a direct mode selection for the next session. Also treat requests to record a dynamic visual bug such as `jump`, `jitter`, `shake`, `flicker`, `flash`, `blink`, `bounce`, `scroll jump`, `layout shift`, `reflow`, `瞬移`, `抖动`, `跳动`, `闪一下`, or `闪烁` as a stronger requirement than ordinary recording. In either case, the recording flow should preserve short post-action motion evidence and should generate a GIF or short replay even if the issue has not yet been auto-detected from the captured artifacts.
+
 Clicking the extension icon should not open a workflow popup anymore. It only serves as an installed indicator and can show a short hint cue on the page with the current shortcuts.
 
 The extension captures:
 - interaction events
 - pointer trajectories
 - periodic keyframe screenshots
+- short post-action motion evidence for dynamic bug recordings
 - DOM target summaries
 - key screenshots
 - URL and route changes

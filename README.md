@@ -33,10 +33,15 @@ Some frontend bugs are nearly impossible to describe in text — they hide in ho
 | 🖱️ **Interaction Capture** | Records clicks, hovers, scrolling, and pointer trajectories on the real page |
 | 🎤 **Voice Transcription** | Microphone audio automatically transcribed via Whisper |
 | 📸 **Smart Screenshots** | Key interaction screenshots + automatic keyframes every 900ms |
+| 🎞️ **Motion Replay (Planned)** | Keeps lightweight post-action motion evidence by default, and generates GIF/short replay when dynamic recording is explicitly requested or a dynamic bug is detected |
 | 🔍 **Focus Regions** | Auto-detects pointer hotspots, generates cropped and trajectory-overlay images |
 | 🌐 **Network & Logs** | Captures console output, runtime exceptions, network requests & responses |
 | 🧠 **Intent Fusion** | Cross-aligns voice, pointer, and screenshots to understand references like "this" and "that button" |
 | 🔗 **Agent Handoff** | Outputs standardized artifacts so the agent continues analysis or code changes in-thread |
+
+### Motion Replay for Dynamic Bugs
+
+For visual issues like `jump`, `jitter`, `shake`, `flicker`, `flash`, `blink`, `bounce`, `scroll jump`, `layout shift`, `reflow`, `抖动`, `跳动`, `闪一下`, or `闪烁`, UI Commander is planned to keep short post-action motion evidence for every recording. If the user explicitly starts with `dynamic recording` or `start dynamic recording`, that should directly enable dynamic recording for the next session. The same upgraded flow also applies when the issue looks motion-heavy or the user explicitly asks to record that dynamic bug.
 
 ---
 
@@ -182,10 +187,13 @@ Once installed as a skill, just **mention it in natural language** in your conve
 | Example |
 |---------|
 | `use ui commander` |
+| `dynamic recording` |
+| `start dynamic recording` |
 | `start ui-commander` |
 | `use ui commander to record a frontend bug` |
 | `启动 ui commander` |
 | `使用 ui commander` |
+| `动态录制` |
 
 ### 💬 Describe Your Intent (Auto-trigger)
 
@@ -196,8 +204,13 @@ When your description clearly involves "demonstrating / recording a frontend iss
 | `I have a frontend bug, let me show you` |
 | `I want to demonstrate this bug` |
 | `record a frontend bug` |
+| `dynamic recording for this issue` |
 | `let me reproduce this web issue` |
+| `the page jumps after I click` |
+| `there is a layout shift / flicker / jitter after submit` |
 | `录一个前端 bug` |
+| `这个问题我要动态录制` |
+| `点击后页面会跳一下` |
 
 ### � Initialize / Readiness Check
 

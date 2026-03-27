@@ -1,5 +1,10 @@
 # AGENTS.md instructions for this workspace
 
+## Local Skill Sync
+- After changing code or behavior in this workspace, sync the updated files to the installed local skill copy at `$HOME/.codex/skills/ui-commander` before wrapping up.
+- Prefer running `/Users/fjh/IT_Workspace/ui-commander/scripts/sync_installed_skill.sh` so the workspace and installed skill stay aligned.
+- If the change touches the Chrome extension or long-lived Python entrypoints, restart or reload the relevant local runtime afterward so the synced code is actually picked up.
+
 ## Skills
 A skill is a set of local instructions to follow that is stored in a `SKILL.md` file. Below is the list of skills that can be used. Each entry includes a name, description, and file path so you can open the source for full instructions when using a specific skill.
 

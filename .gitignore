@@ -2,3 +2,5 @@
 .screen-commander
 .DS_Store
 __pycache__
+package/
+*.tgz

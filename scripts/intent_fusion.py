@@ -74,6 +74,13 @@ Rules:
 - If the evidence is ambiguous, put the uncertainty into ambiguities instead of inventing certainty.
 - Keep intents concise and implementation-oriented.
 - Return JSON only.
+
+Deictic-term categories (in per_term field):
+- proximal ("这个"/"this"/"here"): user points at something currently visible / nearby.
+- distal ("那个"/"that"/"there"): user refers to something previously seen or further away.
+- spatial ("上面"/"left"/"右边"): user describes relative position — use bbox/centroid to resolve.
+- temporal ("刚才"/"earlier"/"前面那个"): user refers to an earlier action — prefer regions with the closest earlier timestamp.
+Use word_time_ms (per-term timestamp) and the category to weigh region candidates more accurately.
 """
 
 
@@ -180,6 +187,16 @@ def build_intent_evidence(
                 "segment_index": mention.get("segment_index"),
                 "text": mention.get("text"),
                 "terms": mention.get("terms", []),
+                "per_term": [
+                    {
+                        "term": pt.get("term"),
+                        "category": pt.get("category"),
+                        "word_time_ms": pt.get("word_time_ms"),
+                        "best_region_id": pt.get("best_region_id"),
+                    }
+                    for pt in mention.get("per_term", [])
+                    if isinstance(pt, dict)
+                ],
                 "start_time": mention.get("start_time"),
                 "end_time": mention.get("end_time"),
                 "best_region_id": mention.get("best_region_id"),

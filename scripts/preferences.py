@@ -25,6 +25,9 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command")
 
     set_parser = subparsers.add_parser("set")
+    set_parser.add_argument("--recording-mode", help="default recording mode: standard or dynamic")
+    set_parser.add_argument("--next-recording-mode", help="one-shot recording mode for the next session")
+    set_parser.add_argument("--clear-next-recording-mode", action="store_true", help="clear one-shot recording mode")
     set_parser.add_argument("--model", help="transcription model name")
     set_parser.add_argument("--language", help="preferred language tag, such as zh or en")
     set_parser.add_argument("--llm", help="on or off")
@@ -42,6 +45,9 @@ def main() -> int:
     args = parse_args()
     if args.command == "set":
         payload = update_preferences(
+            recording_mode=args.recording_mode,
+            next_recording_mode=args.next_recording_mode,
+            clear_next_recording_mode=args.clear_next_recording_mode,
             model=args.model,
             preferred_language=args.language,
             llm_intent_enabled=parse_bool(args.llm),

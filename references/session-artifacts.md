@@ -37,7 +37,8 @@ Core files:
 - `audio/mic.wav` - microphone narration captured by the local companion
 - `transcript.txt` - narration transcript when available
 - `segments.json` - transcript segments, including absolute timeline alignment and nearby focus-region ids when available
-- `referential_mentions.json` - phrases like "this", "that", "这个", or "这两个" with their time range and best nearby pointer hotspots
+- `referential_mentions.json` - phrases like "this", "that", "这个", "这儿", "左边", or "刚才" with their time range, deictic category (proximal/distal/spatial/temporal), word-level timestamp, and best nearby pointer hotspots. Each mention includes per-term resolution with category-aware time windows.
+- `rrweb-events.jsonl` - DOM mutation recording captured by rrweb. Contains full DOM snapshots and incremental changes that can be replayed to reconstruct the exact page state at any point during the session. Use rrweb-player to replay.
 - `intent_evidence.json` - compact evidence bundle prepared for host-thread intent fusion
 - `intent_resolution.json` - host-thread or agent-resolved user intent, ambiguities, and target region ids
 - `screenshots/` - screenshots keyed by event id plus periodic keyframes under `screenshots/keyframes/`
